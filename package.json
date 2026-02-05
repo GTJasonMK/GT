@@ -1,0 +1,40 @@
+{
+  "name": "graph-and-table",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "dev:app": "tauri dev",
+    "build": "tsc -b && vite build",
+    "build:app": "set HTTP_PROXY=socks5://127.0.0.1:7897&& set HTTPS_PROXY=socks5://127.0.0.1:7897&& tauri build",
+    "preview": "vite preview",
+    "tauri": "tauri",
+    "start": "tauri dev"
+  },
+  "dependencies": {
+    "@rollup/rollup-linux-x64-gnu": "^4.57.1",
+    "@tauri-apps/api": "^2.9.1",
+    "@tauri-apps/plugin-dialog": "^2.6.0",
+    "@tauri-apps/plugin-fs": "^2.4.5",
+    "@tiptap/pm": "^2.11.0",
+    "@tiptap/react": "^2.11.0",
+    "@tiptap/starter-kit": "^2.11.0",
+    "@xyflow/react": "^12.4.0",
+    "html-to-image": "^1.11.13",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "zundo": "^2.3.0",
+    "zustand": "^5.0.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.0.0",
+    "@tauri-apps/cli": "^2.0.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@vitejs/plugin-react": "^4.3.0",
+    "tailwindcss": "^4.0.0",
+    "typescript": "~5.7.0",
+    "vite": "^6.0.0"
+  }
+}

@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- Black background with rounded corners -->
+  <rect width="512" height="512" fill="#111111" rx="64"/>
+
+  <!-- Subtle border -->
+  <rect x="8" y="8" width="496" height="496" fill="none" stroke="#333333" stroke-width="2" rx="56"/>
+
+  <!-- G letter - modern geometric style -->
+  <g transform="translate(48, 120)">
+    <path d="M0 136C0 60.9 60.9 0 136 0c37.5 0 71.5 15.2 96 39.8l-34 34C178.5 54.3 158.5 44 136 44c-50.8 0-92 41.2-92 92s41.2 92 92 92c35.9 0 67-20.6 82.2-50.6H136v-44h136c1.8 11.2 2.8 22.7 2.8 34.4 0 75.1-60.9 136-136 136S0 211.1 0 136z"
+          fill="#FAFAFA"/>
+  </g>
+
+  <!-- T letter - modern geometric style -->
+  <g transform="translate(290, 120)">
+    <path d="M0 0h174v44h-65v228h-44V44H0V0z" fill="#FAFAFA"/>
+  </g>
+</svg>

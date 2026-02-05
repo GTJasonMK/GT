@@ -1,0 +1,425 @@
+@import "tailwindcss";
+
+@theme {
+  /* 主色调 - 暖琥珀色 */
+  --color-primary: #B45309;
+  --color-primary-light: #D97706;
+  --color-primary-dark: #92400E;
+  --color-accent: #DC2626;
+
+  /* 表面颜色 - 米白色调 */
+  --color-surface: #F3EDE7;
+  --color-surface-dark: #F7F3EF;
+  --color-surface-hover: #EBE4DC;
+
+  /* 文字颜色 - 暖色调 */
+  --color-text: #3D3329;
+  --color-text-muted: #7A6E62;
+  --color-text-subtle: #A39688;
+
+  /* 边框颜色 - 暖色调 */
+  --color-border: #DDD5CB;
+  --color-border-light: #EBE5DE;
+  --color-border-focus: #D97706;
+
+  /* 背景颜色 - 米白 */
+  --color-node-bg: #FDFBF8;
+  --color-canvas: #F5F1EC;
+
+  /* 阴影系统 */
+  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.04);
+  --shadow-sm: 0 2px 4px rgba(0, 0, 0, 0.06), 0 1px 2px rgba(0, 0, 0, 0.04);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.08), 0 2px 4px rgba(0, 0, 0, 0.04);
+  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.12), 0 4px 8px rgba(0, 0, 0, 0.06);
+  --shadow-xl: 0 16px 48px rgba(0, 0, 0, 0.16), 0 8px 16px rgba(0, 0, 0, 0.08);
+  --shadow-primary: 0 4px 14px rgba(180, 83, 9, 0.25);
+  --shadow-inner: inset 0 1px 2px rgba(0, 0, 0, 0.06);
+
+  /* 字体 */
+  --font-sans: 'Plus Jakarta Sans', system-ui, sans-serif;
+
+  /* 圆角系统 */
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-xl: 20px;
+
+  /* 过渡时间 */
+  --duration-fast: 150ms;
+  --duration-normal: 200ms;
+  --duration-slow: 300ms;
+}
+
+/* 深色模式变量 - 暖色深色调 */
+html.dark {
+  --color-primary: #F59E0B;
+  --color-primary-light: #FBBF24;
+  --color-primary-dark: #D97706;
+  --color-accent: #EF4444;
+  --color-surface: #2A2520;
+  --color-surface-dark: #1C1815;
+  --color-surface-hover: #36302A;
+  --color-text: #F0EAE2;
+  --color-text-muted: #A89E93;
+  --color-text-subtle: #7A7068;
+  --color-border: #3D3630;
+  --color-border-light: #2A2520;
+  --color-border-focus: #FBBF24;
+  --color-node-bg: #231F1B;
+  --color-canvas: #181510;
+
+  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-sm: 0 2px 4px rgba(0, 0, 0, 0.35), 0 1px 2px rgba(0, 0, 0, 0.25);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.45), 0 2px 4px rgba(0, 0, 0, 0.25);
+  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.55), 0 4px 8px rgba(0, 0, 0, 0.35);
+  --shadow-primary: 0 4px 14px rgba(245, 158, 11, 0.25);
+}
+
+html.dark body {
+  background-color: var(--color-canvas);
+}
+
+html.dark .bg-white {
+  background-color: var(--color-node-bg);
+}
+
+html.dark .text-text {
+  color: var(--color-text);
+}
+
+html.dark .border-border {
+  border-color: var(--color-border);
+}
+
+/* 深色模式下的 ReactFlow 控件 */
+html.dark .react-flow__controls {
+  background-color: var(--color-node-bg) !important;
+  border-color: var(--color-border) !important;
+}
+
+html.dark .react-flow__controls button {
+  background-color: var(--color-node-bg) !important;
+  border-color: var(--color-border) !important;
+}
+
+html.dark .react-flow__controls button svg {
+  fill: var(--color-text) !important;
+}
+
+html.dark .react-flow__minimap {
+  background-color: var(--color-node-bg) !important;
+}
+
+/* 深色模式下的 TipTap 编辑器 */
+html.dark .tiptap code {
+  background: #36302A;
+  color: var(--color-primary-light);
+}
+
+/* 全局基础样式 */
+body {
+  font-family: var(--font-sans);
+  color: var(--color-text);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* 全局滚动条样式 */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--color-border);
+  border-radius: 3px;
+  transition: background var(--duration-fast);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-text-muted);
+}
+
+/* 通用过渡效果 */
+.transition-smooth {
+  transition: all var(--duration-normal) cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.transition-fast {
+  transition: all var(--duration-fast) cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* 通用悬停效果 */
+.hover-lift {
+  transition: transform var(--duration-normal) cubic-bezier(0.4, 0, 0.2, 1),
+              box-shadow var(--duration-normal) cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.hover-lift:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-md);
+}
+
+/* 按钮按下效果 */
+.press-effect:active {
+  transform: scale(0.98);
+}
+
+/* 面板样式 */
+.panel {
+  background: var(--color-node-bg);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+}
+
+.panel-section {
+  border-bottom: 1px solid var(--color-border-light);
+}
+
+.panel-section:last-child {
+  border-bottom: none;
+}
+
+/* 分组标题样式 */
+.group-header {
+  background: linear-gradient(to right, var(--color-surface), transparent);
+  font-weight: 500;
+  letter-spacing: 0.01em;
+}
+
+/* 列表项悬停效果 */
+.list-item-hover {
+  transition: background var(--duration-fast) ease,
+              transform var(--duration-fast) ease;
+}
+
+.list-item-hover:hover {
+  background: var(--color-surface);
+}
+
+.list-item-hover:active {
+  transform: scale(0.995);
+}
+
+/* 输入框焦点样式 */
+.input-focus {
+  transition: border-color var(--duration-fast),
+              box-shadow var(--duration-fast);
+}
+
+.input-focus:focus {
+  border-color: var(--color-border-focus);
+  box-shadow: 0 0 0 3px rgba(180, 83, 9, 0.1);
+  outline: none;
+}
+
+/* 标签样式 */
+.tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  font-size: 11px;
+  font-weight: 500;
+  border-radius: 100px;
+  background: var(--color-surface);
+  color: var(--color-text-muted);
+  transition: all var(--duration-fast);
+}
+
+.tag:hover {
+  background: var(--color-primary);
+  color: white;
+}
+
+/* 徽章样式 */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 6px;
+  font-size: 10px;
+  font-weight: 600;
+  border-radius: 100px;
+  background: var(--color-surface);
+  color: var(--color-text-muted);
+}
+
+.badge-primary {
+  background: var(--color-primary);
+  color: white;
+}
+
+/* 分隔线 */
+.divider {
+  height: 1px;
+  background: linear-gradient(to right, transparent, var(--color-border), transparent);
+  margin: 8px 0;
+}
+
+/* ReactFlow 自定义样式 */
+.react-flow__controls {
+  box-shadow: var(--shadow-md) !important;
+}
+
+.react-flow__controls button {
+  border: 1px solid var(--color-border) !important;
+  border-radius: var(--radius-sm) !important;
+  transition: all var(--duration-fast) !important;
+}
+
+.react-flow__controls button:hover {
+  background-color: var(--color-surface) !important;
+  box-shadow: var(--shadow-sm);
+  transform: scale(1.05);
+}
+
+.react-flow__controls button:active {
+  transform: scale(0.95);
+}
+
+.react-flow__edge-path {
+  stroke-width: 2;
+}
+
+.react-flow__connection-line {
+  stroke: var(--color-primary) !important;
+  stroke-width: 2;
+}
+
+.react-flow__minimap {
+  box-shadow: var(--shadow-md) !important;
+}
+
+/* TipTap 编辑器样式 */
+.tiptap {
+  min-height: 100%;
+  line-height: 1.75;
+}
+
+.tiptap:focus {
+  outline: none;
+}
+
+.tiptap p {
+  margin: 0.5em 0;
+}
+
+.tiptap h1, .tiptap h2, .tiptap h3 {
+  font-weight: 600;
+  color: var(--color-text);
+  margin: 1em 0 0.5em;
+  line-height: 1.3;
+}
+
+.tiptap h1 { font-size: 1.5em; }
+.tiptap h2 { font-size: 1.25em; }
+.tiptap h3 { font-size: 1.1em; }
+
+.tiptap ul, .tiptap ol {
+  padding-left: 1.5em;
+  margin: 0.5em 0;
+}
+
+.tiptap li {
+  margin: 0.25em 0;
+}
+
+.tiptap code {
+  background: var(--color-surface);
+  color: var(--color-primary-dark);
+  padding: 0.15em 0.4em;
+  border-radius: 4px;
+  font-size: 0.9em;
+}
+
+.tiptap pre {
+  background: #1E293B;
+  color: #E2E8F0;
+  padding: 1em;
+  border-radius: var(--radius-md);
+  overflow-x: auto;
+  margin: 0.5em 0;
+}
+
+.tiptap pre code {
+  background: none;
+  color: inherit;
+  padding: 0;
+}
+
+.tiptap blockquote {
+  border-left: 3px solid var(--color-primary-light);
+  padding-left: 1em;
+  color: var(--color-text-muted);
+  margin: 0.5em 0;
+  font-style: italic;
+}
+
+/* 动画关键帧 */
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes slideInLeft {
+  from { opacity: 0; transform: translateX(-10px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes slideInRight {
+  from { opacity: 0; transform: translateX(10px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes slideInUp {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes scaleIn {
+  from { opacity: 0; transform: scale(0.95); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+@keyframes pulse-soft {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
+}
+
+.animate-fadeIn {
+  animation: fadeIn var(--duration-normal) ease-out;
+}
+
+.animate-slideInLeft {
+  animation: slideInLeft var(--duration-normal) ease-out;
+}
+
+.animate-slideInRight {
+  animation: slideInRight var(--duration-normal) ease-out;
+}
+
+.animate-slideInUp {
+  animation: slideInUp var(--duration-normal) ease-out;
+}
+
+.animate-scaleIn {
+  animation: scaleIn var(--duration-normal) ease-out;
+}
+
+.animate-pulse-soft {
+  animation: pulse-soft 2s ease-in-out infinite;
+}
+
+/* 减少动画偏好 */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
