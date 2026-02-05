@@ -1,4 +1,12 @@
-/dist
-.claude
-node_modules
-src-tauri/target
+# 构建产物与缓存
+/dist/
+/node_modules/
+tsconfig.tsbuildinfo
+*.tsbuildinfo
+src-tauri/target/
+.claude/
+
+# OS/编辑器杂项
+.DS_Store
+Thumbs.db
+*.log
