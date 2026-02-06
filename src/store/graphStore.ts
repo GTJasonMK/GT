@@ -58,8 +58,8 @@ interface GraphStore {
   autoLayoutFromNode: (nodeId: string) => { ok: boolean; crossings: number };
   beginDragHistoryBatch: () => void;
   endDragHistoryBatch: () => void;
-  toggleNodeLock: (nodeId: string, lockMode?: LockMode) => void;
-  getConnectedNodeIds: (nodeId: string, lockMode?: LockMode) => string[];
+  toggleNodeLock: (nodeId: string, lockMode?: LockMode, lockDepth?: number) => void;
+  getConnectedNodeIds: (nodeId: string, lockMode?: LockMode, lockDepth?: number) => string[];
 
   // 搜索
   setSearchQuery: (query: string) => void;
@@ -293,22 +293,44 @@ export const useGraphStore = create<GraphStore>()(
           resumeHistoryTrackingIfPaused();
         },
 
-        toggleNodeLock: (nodeId, lockMode) => {
+        toggleNodeLock: (nodeId, lockMode, lockDepth) => {
           set({
             nodes: get().nodes.map((node) => {
               if (node.id !== nodeId) return node;
               const isCurrentlyLocked = node.data.locked;
               // 如果当前已锁定，则解除锁定；否则使用传入的 lockMode 进行锁定
               if (isCurrentlyLocked) {
-                return { ...node, data: { ...node.data, locked: false, lockMode: undefined, updatedAt: Date.now() } };
+                return {
+                  ...node,
+                  data: {
+                    ...node.data,
+                    locked: false,
+                    lockMode: undefined,
+                    lockDepth: undefined,
+                    updatedAt: Date.now(),
+                  },
+                };
               } else {
-                return { ...node, data: { ...node.data, locked: true, lockMode: lockMode || "direct", updatedAt: Date.now() } };
+                const nextMode = lockMode || "direct";
+                const normalizedDepth = nextMode === "level"
+                  ? Math.max(1, Math.floor(lockDepth ?? node.data.lockDepth ?? 2))
+                  : undefined;
+                return {
+                  ...node,
+                  data: {
+                    ...node.data,
+                    locked: true,
+                    lockMode: nextMode,
+                    lockDepth: normalizedDepth,
+                    updatedAt: Date.now(),
+                  },
+                };
               }
             }),
           });
         },
 
-        getConnectedNodeIds: (nodeId, lockMode) => {
+        getConnectedNodeIds: (nodeId, lockMode, lockDepth) => {
           const edges = get().edges;
           const outgoingMap = new Map<string, string[]>();
 
@@ -326,12 +348,44 @@ export const useGraphStore = create<GraphStore>()(
             return outgoingMap.get(nodeId) || [];
           }
 
+          if (lockMode === "level") {
+            const depthLimit = Math.max(1, Math.floor(lockDepth ?? 1));
+            const queue: Array<{ id: string; depth: number }> = [{ id: nodeId, depth: 0 }];
+            const visitedDepth = new Map<string, number>([[nodeId, 0]]);
+            const result = new Set<string>();
+            let head = 0;
+
+            while (head < queue.length) {
+              const current = queue[head++];
+              if (!current) continue;
+              if (current.depth >= depthLimit) continue;
+
+              const targets = outgoingMap.get(current.id);
+              if (!targets) continue;
+
+              targets.forEach((targetId) => {
+                const nextDepth = current.depth + 1;
+                const knownDepth = visitedDepth.get(targetId);
+                if (knownDepth !== undefined && knownDepth <= nextDepth) {
+                  return;
+                }
+
+                visitedDepth.set(targetId, nextDepth);
+                result.add(targetId);
+                queue.push({ id: targetId, depth: nextDepth });
+              });
+            }
+
+            return Array.from(result);
+          }
+
           // transitive 模式：BFS 遍历所有从该节点出发可达的节点
           const visited = new Set<string>();
           const queue = [nodeId];
+          let head = 0;
 
-          while (queue.length > 0) {
-            const current = queue.shift()!;
+          while (head < queue.length) {
+            const current = queue[head++]!;
             if (visited.has(current)) continue;
             visited.add(current);
 

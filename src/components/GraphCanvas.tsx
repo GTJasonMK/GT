@@ -74,11 +74,8 @@ const GraphCanvas: FC = () => {
   const deleteNode = useGraphStore((s) => s.deleteNode);
   const duplicateNode = useGraphStore((s) => s.duplicateNode);
   const setSelectedNodeId = useGraphStore((s) => s.setSelectedNodeId);
-  const setNodeEdgeColor = useGraphStore((s) => s.setNodeEdgeColor);
-  const propagateEdgeColorFromNode = useGraphStore((s) => s.propagateEdgeColorFromNode);
   const beginDragHistoryBatch = useGraphStore((s) => s.beginDragHistoryBatch);
   const endDragHistoryBatch = useGraphStore((s) => s.endDragHistoryBatch);
-  const toggleNodeLock = useGraphStore((s) => s.toggleNodeLock);
   const getConnectedNodeIds = useGraphStore((s) => s.getConnectedNodeIds);
   const updateEdgeLabel = useGraphStore((s) => s.updateEdgeLabel);
   const { onNodeDragStart, onNodeDrag, onNodeDragStop } = useLockedNodeDrag({
@@ -233,26 +230,18 @@ const GraphCanvas: FC = () => {
     if (!contextMenu) return [];
     return buildGraphContextMenuItems({
       menu: contextMenu,
-      nodes,
       addNodeFromClientPoint,
       setSelectedNodeId,
       duplicateNode,
-      toggleNodeLock,
-      setNodeEdgeColor,
-      propagateEdgeColorFromNode,
       deleteNode,
       updateEdgeLabel,
       deleteEdge,
     });
   }, [
     contextMenu,
-    nodes,
     addNodeFromClientPoint,
     setSelectedNodeId,
     duplicateNode,
-    toggleNodeLock,
-    setNodeEdgeColor,
-    propagateEdgeColorFromNode,
     deleteNode,
     updateEdgeLabel,
     deleteEdge,

@@ -49,7 +49,7 @@ export const EDGE_COLOR_OPTIONS: EdgeColor[] = ["default", ...EDGE_IMPORTANCE_RA
 
 // 知识节点数据类型
 // 锁定模式类型
-export type LockMode = "direct" | "transitive";
+export type LockMode = "direct" | "transitive" | "level";
 
 export interface KnowledgeNodeData {
   label: string;
@@ -58,7 +58,8 @@ export interface KnowledgeNodeData {
   color?: NodeColor;
   edgeColor?: EdgeColor; // 该节点发出的连线颜色（重要程度）
   locked?: boolean; // 锁定模式：拖动时子节点一起移动
-  lockMode?: LockMode; // 锁定范围：direct=仅直接子节点，transitive=所有可达子节点
+  lockMode?: LockMode; // 锁定范围：direct=仅直接子节点，transitive=所有可达子节点，level=固定层级
+  lockDepth?: number; // lockMode=level 时生效，表示向外锁定的层级深度（>=1）
   createdAt: number;
   updatedAt: number;
   [key: string]: unknown; // 允许索引签名

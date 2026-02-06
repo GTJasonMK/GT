@@ -7,7 +7,7 @@ type GraphNode = Node<KnowledgeNodeData, "knowledgeNode">;
 interface UseLockedNodeDragArgs {
   nodes: GraphNode[];
   onNodesChange: OnNodesChange<GraphNode>;
-  getConnectedNodeIds: (nodeId: string, lockMode?: LockMode) => string[];
+  getConnectedNodeIds: (nodeId: string, lockMode?: LockMode, lockDepth?: number) => string[];
 }
 
 interface DragOffset {
@@ -60,7 +60,7 @@ export function useLockedNodeDrag({ nodes, onNodesChange, getConnectedNodeIds }:
 
       // 使用节点的 lockMode，默认为 direct
       const lockMode = node.data.lockMode || "direct";
-      const connectedIds = getConnectedNodeIds(node.id, lockMode);
+      const connectedIds = getConnectedNodeIds(node.id, lockMode, node.data.lockDepth);
       if (connectedIds.length === 0) {
         dragOffsetsRef.current = null;
         lastDragPositionRef.current = null;

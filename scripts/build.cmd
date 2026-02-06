@@ -8,8 +8,8 @@ echo   GraphAndTable Production Build
 echo ========================================
 echo.
 
-if not exist "node_modules" (
-    echo [1/3] Installing dependencies...
+if not exist "node_modules\@tauri-apps\cli\tauri.js" (
+    echo [1/3] Installing dependencies (missing Tauri CLI)...
     call npm.cmd install
     if !ERRORLEVEL! neq 0 (
         echo Error: npm install failed
@@ -29,7 +29,7 @@ if !ERRORLEVEL! neq 0 (
 )
 
 echo [3/3] Building Tauri app...
-call npm.cmd run tauri build
+call npm.cmd run tauri -- build
 if !ERRORLEVEL! neq 0 (
     echo Error: Tauri build failed
     pause

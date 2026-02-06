@@ -5,15 +5,14 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "dev:app": "tauri dev",
+    "dev:app": "npm run tauri -- dev",
     "build": "tsc -b && vite build",
-    "build:app": "set HTTP_PROXY=socks5://127.0.0.1:7897&& set HTTPS_PROXY=socks5://127.0.0.1:7897&& tauri build",
+    "build:app": "set HTTP_PROXY=socks5://127.0.0.1:7897&& set HTTPS_PROXY=socks5://127.0.0.1:7897&& npm run tauri -- build",
     "preview": "vite preview",
-    "tauri": "tauri",
-    "start": "tauri dev"
+    "tauri": "node ./node_modules/@tauri-apps/cli/tauri.js",
+    "start": "npm run tauri -- dev"
   },
   "dependencies": {
-    "@rollup/rollup-linux-x64-gnu": "^4.57.1",
     "@tauri-apps/api": "^2.9.1",
     "@tauri-apps/plugin-dialog": "^2.6.0",
     "@tauri-apps/plugin-fs": "^2.4.5",

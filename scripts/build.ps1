@@ -24,8 +24,8 @@ try {
 
     # 依赖
     Write-Host "[2/4] Checking dependencies..." -ForegroundColor White
-    if (-not (Test-Path "node_modules")) {
-        Write-Host "  Installing..." -ForegroundColor Gray
+    if (-not (Test-Path "node_modules/@tauri-apps/cli/tauri.js")) {
+        Write-Host "  Installing (missing Tauri CLI)..." -ForegroundColor Gray
         npm install
         if ($LASTEXITCODE -ne 0) {
             throw "npm install failed"
@@ -45,7 +45,7 @@ try {
     Write-Host "[4/4] Building Tauri app..." -ForegroundColor White
     $env:HTTP_PROXY = "http://127.0.0.1:7897"
     $env:HTTPS_PROXY = "http://127.0.0.1:7897"
-    npm run tauri build
+    npm run tauri -- build
     if ($LASTEXITCODE -ne 0) {
         throw "Tauri build failed"
     }

@@ -84,7 +84,13 @@ const KnowledgeNode: FC<NodeProps<KnowledgeGraphNode>> = memo(({ id, data, selec
         {nodeData.locked && (
           <div
             className="absolute top-1 left-1 w-4 h-4 flex items-center justify-center text-primary"
-            title={`已锁定：${nodeData.lockMode === "transitive" ? "所有子节点" : "直接子节点"}一起移动`}
+            title={`已锁定：${
+              nodeData.lockMode === "transitive"
+                ? "所有子节点"
+                : nodeData.lockMode === "level"
+                  ? `前 ${Math.max(1, Math.floor(nodeData.lockDepth || 1))} 级子节点`
+                  : "直接子节点"
+            }一起移动`}
           >
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
               <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />

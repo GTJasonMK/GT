@@ -45,8 +45,8 @@ function Stop-DevServer {
 try {
     # 检查依赖
     Write-Host "[1/3] Checking dependencies..." -ForegroundColor White
-    if (-not (Test-Path "node_modules")) {
-        Write-Host "  Installing npm packages..." -ForegroundColor Gray
+    if (-not (Test-Path "node_modules/@tauri-apps/cli/tauri.js")) {
+        Write-Host "  Installing npm packages (missing Tauri CLI)..." -ForegroundColor Gray
         npm install
         if ($LASTEXITCODE -ne 0) {
             throw "npm install failed"
@@ -71,7 +71,7 @@ try {
     Write-Host ""
 
     # 直接运行 tauri dev
-    npm run tauri dev
+    npm run tauri -- dev
 
 }
 catch {
