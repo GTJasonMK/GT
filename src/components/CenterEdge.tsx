@@ -16,6 +16,7 @@ const CenterEdge: FC<EdgeProps> = memo(({
   markerEnd,
   selected,
   label,
+  data,
 }) => {
   const { setEdges } = useReactFlow();
   const [isEditing, setIsEditing] = useState(false);
@@ -95,7 +96,45 @@ const CenterEdge: FC<EdgeProps> = memo(({
   // 连线颜色（优先使用 style.stroke，否则使用默认色）
   const strokeColor = (style.stroke as string) || "#B45309";
   const selectedColor = selected ? "#92400E" : strokeColor;
-  const shouldAnimate = selected;
+  const edgeData = (typeof data === "object" && data)
+    ? (data as Record<string, unknown>)
+    : {};
+  const isPathFocusActive = edgeData.pathFocusActive === true;
+  const isPathFocused = edgeData.pathFocused === true;
+  const pathFocusMode = edgeData.pathFocusMode === "directed" || edgeData.pathFocusMode === "undirected"
+    ? edgeData.pathFocusMode
+    : null;
+  const shouldAnimate = selected || edgeData.globalFlowAnimation === true || edgeData.focusFlow === true || isPathFocused;
+  const isFocusFlow = edgeData.focusFlow === true;
+  const focusType = edgeData.focusType === "incoming" || edgeData.focusType === "outgoing"
+    ? edgeData.focusType
+    : null;
+  const focusStrokeColor = focusType === "incoming" ? "#2563EB" : "#B45309";
+  const pathStrokeColor = pathFocusMode === "undirected" ? "#7C3AED" : "#0EA5E9";
+  const pathShadowColor = pathFocusMode === "undirected" ? "124,58,237" : "14,165,233";
+  const resolvedStrokeColor = isPathFocused
+    ? pathStrokeColor
+    : isFocusFlow
+      ? focusStrokeColor
+      : selectedColor;
+  const resolvedStrokeWidth = isPathFocused
+    ? 4
+    : selected || isFocusFlow
+      ? 3.5
+      : isPathFocusActive
+        ? 1.4
+        : 2;
+  const resolvedOpacity = isPathFocusActive && !isPathFocused && !selected ? 0.18 : 1;
+  const resolvedStrokeDashArray = isPathFocused && pathFocusMode === "undirected"
+    ? "8 4"
+    : focusType === "incoming"
+      ? "7 4"
+      : undefined;
+  const resolvedFilter = isPathFocused
+    ? `drop-shadow(0 0 4px rgba(${pathShadowColor},0.45))`
+    : isFocusFlow
+      ? "drop-shadow(0 0 2px rgba(180,83,9,0.35))"
+      : undefined;
 
   return (
     <>
@@ -105,9 +144,12 @@ const CenterEdge: FC<EdgeProps> = memo(({
         className="react-flow__edge-path"
         d={path}
         style={{
-          strokeWidth: selected ? 3 : 2,
-          stroke: selectedColor,
+          strokeWidth: resolvedStrokeWidth,
+          stroke: resolvedStrokeColor,
           fill: "none",
+          opacity: resolvedOpacity,
+          strokeDasharray: resolvedStrokeDashArray,
+          filter: resolvedFilter,
         }}
         markerEnd={markerEnd}
       />
@@ -125,7 +167,7 @@ const CenterEdge: FC<EdgeProps> = memo(({
 
       {/* 动画效果 - 流动的点（仅在选中时启用，避免大量边同时动画导致卡顿） */}
       {shouldAnimate && (
-        <circle r="3" fill={strokeColor}>
+        <circle r={isPathFocused || isFocusFlow ? "3.5" : "3"} fill={resolvedStrokeColor}>
           <animateMotion dur="2s" repeatCount="indefinite" path={path} />
         </circle>
       )}

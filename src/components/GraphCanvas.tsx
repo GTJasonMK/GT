@@ -20,6 +20,7 @@ import KnowledgeNode from "./KnowledgeNode";
 import CenterEdge from "./CenterEdge";
 import ContextMenu from "./ContextMenu";
 import { useGraphStore } from "@/store/graphStore";
+import { useSettingsStore } from "@/store/settingsStore";
 import { useTheme } from "@/hooks/useTheme";
 import { useCanvasInteraction } from "@/hooks/useCanvasInteraction";
 import { useLockedNodeDrag } from "@/hooks/useLockedNodeDrag";
@@ -78,11 +79,21 @@ const GraphCanvas: FC = () => {
   const endDragHistoryBatch = useGraphStore((s) => s.endDragHistoryBatch);
   const getConnectedNodeIds = useGraphStore((s) => s.getConnectedNodeIds);
   const updateEdgeLabel = useGraphStore((s) => s.updateEdgeLabel);
+  const selectedNodeId = useGraphStore((s) => s.selectedNodeId);
+  const pathFocusEdgeIds = useGraphStore((s) => s.pathFocusEdgeIds);
+  const pathFocusMode = useGraphStore((s) => s.pathFocusMode);
+  const globalEdgeFlowAnimation = useSettingsStore((s) => s.layout.globalEdgeFlowAnimation);
   const { onNodeDragStart, onNodeDrag, onNodeDragStop } = useLockedNodeDrag({
     nodes,
     onNodesChange,
     getConnectedNodeIds,
   });
+
+  const pathFocusEdgeIdSet = useMemo(() => new Set(pathFocusEdgeIds), [pathFocusEdgeIds]);
+  const hasPathFocus = useMemo(() => {
+    if (pathFocusEdgeIdSet.size === 0) return false;
+    return edges.some((edge) => pathFocusEdgeIdSet.has(edge.id));
+  }, [edges, pathFocusEdgeIdSet]);
 
   const edgeColorByNodeId = useMemo(() => {
     const map = new Map<string, EdgeColor>();
@@ -101,6 +112,10 @@ const GraphCanvas: FC = () => {
           ? rawEdgeColor
           : "default";
       const colorConfig = EDGE_COLORS[edgeColor];
+      const isOutgoingFromSelected = Boolean(selectedNodeId && edge.source === selectedNodeId);
+      const isIncomingToSelected = Boolean(selectedNodeId && edge.target === selectedNodeId);
+      const focusType = isOutgoingFromSelected ? "outgoing" : isIncomingToSelected ? "incoming" : undefined;
+      const isPathFocused = hasPathFocus && pathFocusEdgeIdSet.has(edge.id);
       return {
         ...edge,
         style: {
@@ -110,10 +125,24 @@ const GraphCanvas: FC = () => {
         data: {
           ...edge.data,
           edgeColor,
+          focusFlow: Boolean(focusType),
+          focusType,
+          globalFlowAnimation: globalEdgeFlowAnimation,
+          pathFocusActive: hasPathFocus,
+          pathFocused: isPathFocused,
+          pathFocusMode,
         },
       };
     });
-  }, [edges, edgeColorByNodeId]);
+  }, [
+    edges,
+    edgeColorByNodeId,
+    selectedNodeId,
+    globalEdgeFlowAnimation,
+    hasPathFocus,
+    pathFocusEdgeIdSet,
+    pathFocusMode,
+  ]);
 
   // 双击画布空白处添加新节点
   const handlePaneDoubleClick = useCallback(

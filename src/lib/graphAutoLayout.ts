@@ -5,7 +5,7 @@ import { NODE_CENTER_OFFSET } from "@/constants/graphLayout";
 type GraphNode = Node<KnowledgeNodeData, "knowledgeNode">;
 type GraphEdge = Edge;
 
-type LayoutStyle = "layered" | "radial";
+export type LayoutStyle = "layered" | "radial";
 
 interface Point {
   x: number;
@@ -24,6 +24,7 @@ interface Bounds {
 export interface AutoLayoutOptions {
   layoutStyle?: LayoutStyle; // layered=分层树状；radial=发散同心圆
   includeOtherComponents?: boolean; // 是否同时整理其它不连通分量（默认否）
+  fixedNodeIds?: string[]; // 固定节点：布局后保持这些节点原位（以节点 id 标识）
   ringSpacing?: number; // 每一层（最短距离）之间的间距（像素）
   nodeSpacing?: number; // 同一层节点的目标间距（像素，近似）
   componentGap?: number; // 不同连通分量之间的间隔（像素）
@@ -41,6 +42,7 @@ export interface AutoLayoutResult {
 const DEFAULT_OPTIONS: Required<AutoLayoutOptions> = {
   layoutStyle: "radial",
   includeOtherComponents: false,
+  fixedNodeIds: [],
   ringSpacing: 140,
   nodeSpacing: 140,
   componentGap: 320,
@@ -899,12 +901,15 @@ export function computeAutoLayoutPositions(args: {
 }): AutoLayoutResult {
   const { nodes, edges, rootId, options } = args;
   const mergedOptions: Required<AutoLayoutOptions> = { ...DEFAULT_OPTIONS, ...(options || {}) };
+  const fixedNodeIds = Array.isArray(mergedOptions.fixedNodeIds) ? mergedOptions.fixedNodeIds : [];
 
   const rootNode = nodes.find((n) => n.id === rootId);
   if (!rootNode) return { positions: new Map(), crossings: 0 };
 
   const nodeIdsInOrder = nodes.map((n) => n.id);
   const nodeIdSet = new Set(nodeIdsInOrder);
+  const nodeById = new Map<string, GraphNode>();
+  nodes.forEach((node) => nodeById.set(node.id, node));
 
   const orderIndex = new Map<string, number>();
   nodeIdsInOrder.forEach((id, index) => orderIndex.set(id, index));
@@ -987,6 +992,19 @@ export function computeAutoLayoutPositions(args: {
       columnWidth = Math.max(columnWidth, relBounds.width);
       crossings += componentCenters[i]!.crossings;
     }
+  }
+
+  // 固定节点：保持原位（根节点本身已天然保持原位，这里无需重复处理）
+  if (fixedNodeIds.length > 0) {
+    fixedNodeIds.forEach((id) => {
+      if (id === rootId) return;
+      const node = nodeById.get(id);
+      if (!node) return;
+      placedCenters.set(id, {
+        x: node.position.x + NODE_CENTER_OFFSET.x,
+        y: node.position.y + NODE_CENTER_OFFSET.y,
+      });
+    });
   }
 
   // 转换为 ReactFlow 的左上角 position

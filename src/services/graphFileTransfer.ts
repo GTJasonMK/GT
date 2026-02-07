@@ -24,9 +24,9 @@ function pickLocalFile(accept: string): Promise<File | null> {
   });
 }
 
-export async function exportGraphAsJsonFile(data: GraphData): Promise<void> {
+export async function exportGraphAsJsonFile(data: GraphData, filename?: string): Promise<void> {
   const jsonStr = serializeGraphData(data);
-  const defaultName = `graph_${Date.now()}.json`;
+  const defaultName = filename && filename.trim() ? filename.trim() : `graph_${Date.now()}.json`;
 
   if (isTauri()) {
     const filePath = await saveFileDialog({

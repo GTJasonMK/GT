@@ -9,7 +9,7 @@ echo ========================================
 echo.
 
 if not exist "node_modules\@tauri-apps\cli\tauri.js" (
-    echo [1/3] Installing dependencies (missing Tauri CLI)...
+    echo [1/3] Installing dependencies - missing Tauri CLI...
     call npm.cmd install
     if !ERRORLEVEL! neq 0 (
         echo Error: npm install failed
@@ -28,7 +28,20 @@ if !ERRORLEVEL! neq 0 (
     exit /b 1
 )
 
-echo [3/3] Building Tauri app...
+if defined GAT_PROXY_URL (
+    set "HTTP_PROXY=%GAT_PROXY_URL%"
+    set "HTTPS_PROXY=%GAT_PROXY_URL%"
+    echo [3/3] Building Tauri app with proxy %GAT_PROXY_URL%...
+) else (
+    set "HTTP_PROXY="
+    set "HTTPS_PROXY="
+    set "ALL_PROXY="
+    set "http_proxy="
+    set "https_proxy="
+    set "all_proxy="
+    echo [3/3] Building Tauri app - proxy disabled...
+)
+
 call npm.cmd run tauri -- build
 if !ERRORLEVEL! neq 0 (
     echo Error: Tauri build failed

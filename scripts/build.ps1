@@ -42,9 +42,20 @@ try {
     Write-Host "  OK" -ForegroundColor Green
 
     # Tauri 构建
-    Write-Host "[4/4] Building Tauri app..." -ForegroundColor White
-    $env:HTTP_PROXY = "http://127.0.0.1:7897"
-    $env:HTTPS_PROXY = "http://127.0.0.1:7897"
+    if ($env:GAT_PROXY_URL) {
+        Write-Host "[4/4] Building Tauri app with proxy $($env:GAT_PROXY_URL)..." -ForegroundColor White
+        $env:HTTP_PROXY = $env:GAT_PROXY_URL
+        $env:HTTPS_PROXY = $env:GAT_PROXY_URL
+    } else {
+        Write-Host "[4/4] Building Tauri app (proxy disabled)..." -ForegroundColor White
+        Remove-Item Env:HTTP_PROXY -ErrorAction SilentlyContinue
+        Remove-Item Env:HTTPS_PROXY -ErrorAction SilentlyContinue
+        Remove-Item Env:ALL_PROXY -ErrorAction SilentlyContinue
+        Remove-Item Env:http_proxy -ErrorAction SilentlyContinue
+        Remove-Item Env:https_proxy -ErrorAction SilentlyContinue
+        Remove-Item Env:all_proxy -ErrorAction SilentlyContinue
+    }
+
     npm run tauri -- build
     if ($LASTEXITCODE -ne 0) {
         throw "Tauri build failed"

@@ -3,6 +3,7 @@ import { useEditor, EditorContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import { useStoreWithEqualityFn } from "zustand/traditional";
 import { useGraphStore } from "@/store/graphStore";
+import { useSettingsStore } from "@/store/settingsStore";
 import type { EdgeColor, LockMode, NodeColor } from "@/types";
 import { EDGE_COLOR_OPTIONS, EDGE_COLORS, NODE_COLORS } from "@/types";
 import type { Node } from "@xyflow/react";
@@ -14,6 +15,42 @@ type EditorTab = "features" | "content";
 
 const LOCK_DEPTH_MIN = 1;
 const LOCK_DEPTH_MAX = 8;
+const LAYOUT_RING_SPACING_MIN = 96;
+const LAYOUT_RING_SPACING_MAX = 260;
+const LAYOUT_NODE_SPACING_MIN = 96;
+const LAYOUT_NODE_SPACING_MAX = 260;
+const LAYOUT_MAX_ATTEMPTS_MIN = 1;
+const LAYOUT_MAX_ATTEMPTS_MAX = 24;
+
+const LAYOUT_PRESETS = [
+  {
+    id: "compact",
+    label: "紧凑",
+    description: "更小间距，适合快速收拢当前子图",
+    layoutStyle: "layered" as const,
+    ringSpacing: 112,
+    nodeSpacing: 108,
+    maxAttempts: 8,
+  },
+  {
+    id: "balanced",
+    label: "平衡",
+    description: "默认参数，适合大多数场景",
+    layoutStyle: "radial" as const,
+    ringSpacing: 140,
+    nodeSpacing: 140,
+    maxAttempts: 12,
+  },
+  {
+    id: "spacious",
+    label: "宽松",
+    description: "更大间距，适合阅读密集关系",
+    layoutStyle: "radial" as const,
+    ringSpacing: 184,
+    nodeSpacing: 176,
+    maxAttempts: 16,
+  },
+];
 
 const LOCK_MODE_OPTIONS: Array<{ value: LockMode; label: string; description: string }> = [
   { value: "direct", label: "相邻", description: "仅固定直接子节点" },
@@ -72,11 +109,16 @@ const EditorPanel: FC = () => {
   const updateNodeData = useGraphStore((s) => s.updateNodeData);
   const deleteNode = useGraphStore((s) => s.deleteNode);
   const autoLayoutFromNode = useGraphStore((s) => s.autoLayoutFromNode);
+  const layoutSettings = useSettingsStore((s) => s.layout);
+  const setLayoutSettings = useSettingsStore((s) => s.setLayoutSettings);
+  const resetLayoutSettings = useSettingsStore((s) => s.resetLayoutSettings);
 
   const [layoutCrossings, setLayoutCrossings] = useState<number | null>(null);
   const [activeTab, setActiveTab] = useState<EditorTab>("features");
   const [lockModeDraft, setLockModeDraft] = useState<LockMode>("direct");
   const [lockDepthDraft, setLockDepthDraft] = useState<number>(2);
+  const [showGlobalLayoutConfirm, setShowGlobalLayoutConfirm] = useState(false);
+  const [skipGlobalLayoutConfirm, setSkipGlobalLayoutConfirm] = useState(false);
 
   const selectedNode = nodes.find((n) => n.id === selectedNodeId);
   const nodeData = selectedNode?.data;
@@ -123,6 +165,21 @@ const EditorPanel: FC = () => {
     return `当前已锁定：${getLockModeLabel(nodeData.lockMode, nodeData.lockDepth)}`;
   }, [nodeData?.locked, nodeData?.lockMode, nodeData?.lockDepth]);
 
+  const activeLayoutPresetId = useMemo(() => {
+    const preset = LAYOUT_PRESETS.find((item) =>
+      item.layoutStyle === layoutSettings.layoutStyle
+      && item.ringSpacing === layoutSettings.ringSpacing
+      && item.nodeSpacing === layoutSettings.nodeSpacing
+      && item.maxAttempts === layoutSettings.maxAttempts,
+    );
+    return preset?.id ?? null;
+  }, [
+    layoutSettings.layoutStyle,
+    layoutSettings.ringSpacing,
+    layoutSettings.nodeSpacing,
+    layoutSettings.maxAttempts,
+  ]);
+
   const handleTitleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!selectedNodeId) return;
     updateNodeData(selectedNodeId, { label: e.target.value });
@@ -164,7 +221,13 @@ const EditorPanel: FC = () => {
 
   const handleAutoLayout = () => {
     if (!selectedNodeId) return;
-    const result = autoLayoutFromNode(selectedNodeId);
+    const result = autoLayoutFromNode(selectedNodeId, {
+      layoutStyle: layoutSettings.layoutStyle,
+      includeOtherComponents: false,
+      ringSpacing: layoutSettings.ringSpacing,
+      nodeSpacing: layoutSettings.nodeSpacing,
+      maxAttempts: layoutSettings.maxAttempts,
+    });
     if (!result.ok) {
       alert("无法整理：未找到可用布局（可能是节点不存在或图数据异常）。");
       return;
@@ -173,6 +236,43 @@ const EditorPanel: FC = () => {
     setLayoutCrossings(result.crossings);
     const latestNode = useGraphStore.getState().nodes.find((n) => n.id === selectedNodeId);
     if (latestNode) focusNode(latestNode);
+  };
+
+  const runAutoLayoutAllComponents = () => {
+    if (!selectedNodeId) return;
+    const result = autoLayoutFromNode(selectedNodeId, {
+      layoutStyle: layoutSettings.layoutStyle,
+      includeOtherComponents: true,
+      ringSpacing: layoutSettings.ringSpacing,
+      nodeSpacing: layoutSettings.nodeSpacing,
+      maxAttempts: layoutSettings.maxAttempts,
+    });
+    if (!result.ok) {
+      alert("无法整理：未找到可用布局（可能是节点不存在或图数据异常）。");
+      return;
+    }
+
+    setLayoutCrossings(result.crossings);
+    const latestNode = useGraphStore.getState().nodes.find((n) => n.id === selectedNodeId);
+    if (latestNode) focusNode(latestNode);
+  };
+
+  const handleAutoLayoutAllComponents = () => {
+    if (!selectedNodeId) return;
+    if (layoutSettings.confirmBeforeGlobalLayout) {
+      setSkipGlobalLayoutConfirm(false);
+      setShowGlobalLayoutConfirm(true);
+      return;
+    }
+    runAutoLayoutAllComponents();
+  };
+
+  const handleConfirmGlobalLayout = () => {
+    if (skipGlobalLayoutConfirm) {
+      setLayoutSettings({ confirmBeforeGlobalLayout: false });
+    }
+    setShowGlobalLayoutConfirm(false);
+    runAutoLayoutAllComponents();
   };
 
   const handleApplyLock = () => {
@@ -354,19 +454,146 @@ const EditorPanel: FC = () => {
 
           <div className="px-4 py-2.5 border-b border-border">
             <div className="text-[10px] text-text-muted/70 mb-2 font-medium uppercase tracking-wider">布局</div>
+            <div className="grid grid-cols-3 gap-1.5 mb-2">
+              {LAYOUT_PRESETS.map((preset) => (
+                <button
+                  key={preset.id}
+                  onClick={() => setLayoutSettings({
+                    layoutStyle: preset.layoutStyle,
+                    ringSpacing: preset.ringSpacing,
+                    nodeSpacing: preset.nodeSpacing,
+                    maxAttempts: preset.maxAttempts,
+                  })}
+                  className={`px-2 py-1.5 text-xs rounded-md transition-all cursor-pointer ${
+                    activeLayoutPresetId === preset.id
+                      ? "bg-primary text-white shadow-sm"
+                      : "bg-surface text-text-muted hover:text-text"
+                  }`}
+                  title={preset.description}
+                >
+                  {preset.label}
+                </button>
+              ))}
+            </div>
+
+            <div className="grid grid-cols-2 gap-1.5 mb-2">
+              <button
+                onClick={() => setLayoutSettings({ layoutStyle: "radial" })}
+                className={`px-2 py-1.5 text-xs rounded-md transition-all cursor-pointer ${
+                  layoutSettings.layoutStyle === "radial"
+                    ? "bg-primary text-white shadow-sm"
+                    : "bg-surface text-text-muted hover:text-text"
+                }`}
+                title="发散同心圆布局"
+              >
+                发散
+              </button>
+              <button
+                onClick={() => setLayoutSettings({ layoutStyle: "layered" })}
+                className={`px-2 py-1.5 text-xs rounded-md transition-all cursor-pointer ${
+                  layoutSettings.layoutStyle === "layered"
+                    ? "bg-primary text-white shadow-sm"
+                    : "bg-surface text-text-muted hover:text-text"
+                }`}
+                title="分层树状布局"
+              >
+                分层
+              </button>
+            </div>
+
+            <div className="mb-2">
+              <div className="flex items-center justify-between text-[11px] text-text-muted/80">
+                <span>层间距</span>
+                <span>{layoutSettings.ringSpacing}px</span>
+              </div>
+              <input
+                type="range"
+                min={LAYOUT_RING_SPACING_MIN}
+                max={LAYOUT_RING_SPACING_MAX}
+                step={8}
+                value={layoutSettings.ringSpacing}
+                onChange={(e) => setLayoutSettings({ ringSpacing: Number(e.currentTarget.value) })}
+                className="w-full mt-1 accent-primary cursor-pointer"
+              />
+            </div>
+
+            <div className="mb-2">
+              <div className="flex items-center justify-between text-[11px] text-text-muted/80">
+                <span>同层间距</span>
+                <span>{layoutSettings.nodeSpacing}px</span>
+              </div>
+              <input
+                type="range"
+                min={LAYOUT_NODE_SPACING_MIN}
+                max={LAYOUT_NODE_SPACING_MAX}
+                step={8}
+                value={layoutSettings.nodeSpacing}
+                onChange={(e) => setLayoutSettings({ nodeSpacing: Number(e.currentTarget.value) })}
+                className="w-full mt-1 accent-primary cursor-pointer"
+              />
+            </div>
+
+            <div className="mb-2">
+              <div className="flex items-center justify-between text-[11px] text-text-muted/80">
+                <span>尝试次数</span>
+                <span>{layoutSettings.maxAttempts}</span>
+              </div>
+              <input
+                type="range"
+                min={LAYOUT_MAX_ATTEMPTS_MIN}
+                max={LAYOUT_MAX_ATTEMPTS_MAX}
+                step={1}
+                value={layoutSettings.maxAttempts}
+                onChange={(e) => setLayoutSettings({ maxAttempts: Number(e.currentTarget.value) })}
+                className="w-full mt-1 accent-primary cursor-pointer"
+              />
+            </div>
+
+            <button
+              onClick={resetLayoutSettings}
+              className="w-full mb-2 px-2 py-1.5 text-xs rounded-md border border-border text-text-muted hover:text-text hover:bg-surface transition-all cursor-pointer"
+              title="恢复默认布局参数"
+            >
+              恢复布局默认参数
+            </button>
+
             <button
               onClick={handleAutoLayout}
               className="w-full flex items-center justify-center gap-2 px-3 py-2 text-sm font-medium rounded-lg bg-surface hover:bg-surface-hover text-text transition-all duration-150 cursor-pointer"
-              title="以当前节点为中心，自动整理“当前连通子图”（不会影响不相连的其它图，可撤销）"
+              title="以当前节点为中心，仅整理当前连通子图（不会影响不相连的其它图，可撤销）"
             >
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M21 12a9 9 0 1 1-9-9" />
                 <polyline points="22 4 21 12 13 11" />
               </svg>
-              以此为中心整理当前图
+              整理当前群组
             </button>
+            <button
+              onClick={handleAutoLayoutAllComponents}
+              className="w-full mt-2 flex items-center justify-center gap-2 px-3 py-2 text-sm font-medium rounded-lg border border-border text-text-muted hover:text-text hover:bg-surface transition-all duration-150 cursor-pointer"
+              title="以当前节点为锚点，同时整理所有不相交群组（会移动更多节点，可撤销）"
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="6" cy="6" r="2" />
+                <circle cx="18" cy="6" r="2" />
+                <circle cx="6" cy="18" r="2" />
+                <circle cx="18" cy="18" r="2" />
+                <line x1="8" y1="6" x2="16" y2="6" />
+                <line x1="6" y1="8" x2="6" y2="16" />
+              </svg>
+              整理全部群组
+            </button>
+            <label className="mt-2 flex items-center gap-2 text-xs text-text-muted cursor-pointer">
+              <input
+                type="checkbox"
+                checked={layoutSettings.confirmBeforeGlobalLayout}
+                onChange={(e) => setLayoutSettings({ confirmBeforeGlobalLayout: e.currentTarget.checked })}
+                className="accent-primary"
+              />
+              全局整理前弹窗确认
+            </label>
             <div className="mt-2 text-xs text-text-muted/70">
-              只调整位置，不修改内容；默认只整理与该节点相连的子图，可撤销（Ctrl+Z）。
+              只调整位置，不修改内容；“整理当前群组”不会影响不相交群组。已锁定节点会保持原位，可撤销（Ctrl+Z）。
             </div>
             {layoutCrossings !== null && (
               <div className={`mt-2 text-xs ${layoutCrossings === 0 ? "text-emerald-700" : "text-amber-700"}`}>
@@ -561,6 +788,43 @@ const EditorPanel: FC = () => {
       {!hasSelectedNode && renderEmptyState()}
       {hasSelectedNode && activeTab === "features" && renderFeatureTab()}
       {hasSelectedNode && activeTab === "content" && renderContentTab()}
+
+      {showGlobalLayoutConfirm && (
+        <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/40 px-4">
+          <div className="w-full max-w-sm rounded-xl bg-white border border-border shadow-xl p-4">
+            <div className="text-sm font-semibold text-text">确认整理全部群组</div>
+            <div className="mt-2 text-xs text-text-muted leading-5">
+              该操作会移动当前画布中的所有不相交群组，可能导致你手工调整的位置被重排。
+            </div>
+            <label className="mt-3 flex items-center gap-2 text-xs text-text-muted cursor-pointer">
+              <input
+                type="checkbox"
+                checked={skipGlobalLayoutConfirm}
+                onChange={(e) => setSkipGlobalLayoutConfirm(e.currentTarget.checked)}
+                className="accent-primary"
+              />
+              下次不再提示
+            </label>
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                onClick={() => {
+                  setShowGlobalLayoutConfirm(false);
+                  setSkipGlobalLayoutConfirm(false);
+                }}
+                className="px-3 py-1.5 text-xs rounded-md border border-border text-text-muted hover:text-text hover:bg-surface transition-all cursor-pointer"
+              >
+                取消
+              </button>
+              <button
+                onClick={handleConfirmGlobalLayout}
+                className="px-3 py-1.5 text-xs rounded-md bg-primary text-white hover:bg-primary-dark transition-all cursor-pointer"
+              >
+                继续整理
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

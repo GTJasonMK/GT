@@ -11,9 +11,9 @@ import {
   type OnEdgesChange,
   type OnConnect,
 } from "@xyflow/react";
-import { EDGE_COLORS, EDGE_IMPORTANCE_RANKS, type KnowledgeNodeData, type GraphData, type EdgeColor, type LockMode } from "@/types";
+import { EDGE_COLORS, EDGE_IMPORTANCE_RANKS, type KnowledgeNodeData, type GraphData, type EdgeColor, type LockMode, type NodeColor } from "@/types";
 import { loadGraphData, saveGraphData } from "@/services/graphStorage";
-import { computeAutoLayoutPositions } from "@/lib/graphAutoLayout";
+import { type AutoLayoutOptions, computeAutoLayoutPositions } from "@/lib/graphAutoLayout";
 
 // 生成唯一 ID
 const generateId = () => `node_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
@@ -34,10 +34,41 @@ function normalizeEdgeColor(value: unknown): EdgeColor {
   return EDGE_COLOR_MIGRATION_MAP[value] ?? "default";
 }
 
+function resolveSelectedNodeIds(nodes: GraphNode[], selectedNodeId: string | null): string[] {
+  const multiSelectedIds = nodes.filter((node) => Boolean(node.selected)).map((node) => node.id);
+  if (multiSelectedIds.length > 0) return multiSelectedIds;
+  if (!selectedNodeId) return [];
+  return nodes.some((node) => node.id === selectedNodeId) ? [selectedNodeId] : [];
+}
+
+function normalizeTagList(tags: string[]): string[] {
+  const nextTags = tags.map((tag) => tag.trim()).filter(Boolean);
+  return Array.from(new Set(nextTags));
+}
+
+function clampLockDepth(depth: number): number {
+  return Math.max(1, Math.floor(depth));
+}
+
+export interface BatchNodeEditPayload {
+  color?: NodeColor;
+  edgeColor?: EdgeColor;
+  appendTags?: string[];
+  replaceTags?: string[];
+  lock?: {
+    enabled: boolean;
+    mode?: LockMode;
+    depth?: number;
+  };
+}
+
 interface GraphStore {
   nodes: GraphNode[];
   edges: GraphEdge[];
   selectedNodeId: string | null;
+  pathFocusNodeIds: string[];
+  pathFocusEdgeIds: string[];
+  pathFocusMode: "directed" | "undirected" | null;
   saveStatus: "idle" | "saving" | "saved";
   searchQuery: string;
   searchResults: string[];
@@ -55,11 +86,14 @@ interface GraphStore {
   setSelectedNodeId: (nodeId: string | null) => void;
   setNodeEdgeColor: (nodeId: string, edgeColor: EdgeColor) => void;
   propagateEdgeColorFromNode: (nodeId: string) => void;
-  autoLayoutFromNode: (nodeId: string) => { ok: boolean; crossings: number };
+  autoLayoutFromNode: (nodeId: string, options?: AutoLayoutOptions) => { ok: boolean; crossings: number };
   beginDragHistoryBatch: () => void;
   endDragHistoryBatch: () => void;
   toggleNodeLock: (nodeId: string, lockMode?: LockMode, lockDepth?: number) => void;
   getConnectedNodeIds: (nodeId: string, lockMode?: LockMode, lockDepth?: number) => string[];
+  applyBatchEditToSelectedNodes: (payload: BatchNodeEditPayload) => { ok: boolean; count: number; message: string };
+  focusShortestPathBetweenSelectedNodes: () => { ok: boolean; message: string };
+  clearPathFocus: () => void;
 
   // 搜索
   setSearchQuery: (query: string) => void;
@@ -71,6 +105,8 @@ interface GraphStore {
   saveData: () => Promise<void>;
   loadData: () => Promise<void>;
   exportData: () => GraphData;
+  exportSelectedNodesData: () => GraphData | null;
+  exportSelectedSubgraphData: () => GraphData | null;
   importData: (data: GraphData) => void;
 }
 
@@ -102,6 +138,9 @@ export const useGraphStore = create<GraphStore>()(
         nodes: [],
         edges: [],
         selectedNodeId: null,
+        pathFocusNodeIds: [],
+        pathFocusEdgeIds: [],
+        pathFocusMode: null,
         saveStatus: "idle" as const,
         searchQuery: "",
         searchResults: [],
@@ -266,9 +305,19 @@ export const useGraphStore = create<GraphStore>()(
           });
         },
 
-        autoLayoutFromNode: (nodeId) => {
+        autoLayoutFromNode: (nodeId, options) => {
           const { nodes, edges } = get();
-          const result = computeAutoLayoutPositions({ nodes, edges, rootId: nodeId });
+          const lockedNodeIds = nodes.filter((node) => node.data.locked).map((node) => node.id);
+          const fixedNodeIdSet = new Set<string>([...(options?.fixedNodeIds || []), ...lockedNodeIds]);
+          const result = computeAutoLayoutPositions({
+            nodes,
+            edges,
+            rootId: nodeId,
+            options: {
+              ...(options || {}),
+              fixedNodeIds: Array.from(fixedNodeIdSet),
+            },
+          });
           if (result.positions.size === 0) return { ok: false, crossings: result.crossings };
 
           set({
@@ -403,6 +452,179 @@ export const useGraphStore = create<GraphStore>()(
           return Array.from(visited);
         },
 
+        applyBatchEditToSelectedNodes: (payload) => {
+          const { nodes, selectedNodeId } = get();
+          const selectedIds = resolveSelectedNodeIds(nodes, selectedNodeId);
+          if (selectedIds.length === 0) {
+            return { ok: false, count: 0, message: "请先选中节点后再执行批量编辑。" };
+          }
+
+          const hasAnyAction =
+            payload.color !== undefined ||
+            payload.edgeColor !== undefined ||
+            payload.appendTags !== undefined ||
+            payload.replaceTags !== undefined ||
+            payload.lock !== undefined;
+          if (!hasAnyAction) {
+            return { ok: false, count: selectedIds.length, message: "请至少选择一个批量编辑动作。" };
+          }
+
+          const selectedIdSet = new Set(selectedIds);
+          const normalizedReplaceTags = payload.replaceTags ? normalizeTagList(payload.replaceTags) : undefined;
+          const normalizedAppendTags = payload.appendTags ? normalizeTagList(payload.appendTags) : undefined;
+          const now = Date.now();
+
+          set({
+            nodes: nodes.map((node) => {
+              if (!selectedIdSet.has(node.id)) return node;
+
+              const nextData: KnowledgeNodeData = {
+                ...node.data,
+                updatedAt: now,
+              };
+
+              if (payload.color !== undefined) {
+                nextData.color = payload.color;
+              }
+
+              if (payload.edgeColor !== undefined) {
+                nextData.edgeColor = payload.edgeColor;
+              }
+
+              if (normalizedReplaceTags !== undefined) {
+                nextData.tags = normalizedReplaceTags;
+              } else if (normalizedAppendTags !== undefined) {
+                nextData.tags = normalizeTagList([...(nextData.tags || []), ...normalizedAppendTags]);
+              }
+
+              if (payload.lock !== undefined) {
+                if (!payload.lock.enabled) {
+                  nextData.locked = false;
+                  nextData.lockMode = undefined;
+                  nextData.lockDepth = undefined;
+                } else {
+                  const lockMode = payload.lock.mode || nextData.lockMode || "direct";
+                  nextData.locked = true;
+                  nextData.lockMode = lockMode;
+                  nextData.lockDepth = lockMode === "level"
+                    ? clampLockDepth(payload.lock.depth ?? nextData.lockDepth ?? 2)
+                    : undefined;
+                }
+              }
+
+              return {
+                ...node,
+                data: nextData,
+              };
+            }),
+          });
+
+          return {
+            ok: true,
+            count: selectedIds.length,
+            message: `已批量更新 ${selectedIds.length} 个节点。`,
+          };
+        },
+
+        focusShortestPathBetweenSelectedNodes: () => {
+          const { nodes, edges, selectedNodeId } = get();
+          let selectedNodes = nodes.filter((node) => Boolean(node.selected));
+
+          // 兼容：若没有多选状态，保留单选结果用于提示
+          if (selectedNodes.length === 0 && selectedNodeId) {
+            const single = nodes.find((node) => node.id === selectedNodeId);
+            if (single) selectedNodes = [single];
+          }
+
+          if (selectedNodes.length !== 2) {
+            return { ok: false, message: "请先框选两个节点，再执行一键聚焦路径。" };
+          }
+
+          const startId = selectedNodes[0]!.id;
+          const targetId = selectedNodes[1]!.id;
+
+          const buildAdjacency = (directed: boolean) => {
+            const map = new Map<string, Array<{ nodeId: string; edgeId: string }>>();
+            nodes.forEach((node) => map.set(node.id, []));
+
+            edges.forEach((edge) => {
+              map.get(edge.source)?.push({ nodeId: edge.target, edgeId: edge.id });
+              if (!directed) {
+                map.get(edge.target)?.push({ nodeId: edge.source, edgeId: edge.id });
+              }
+            });
+
+            return map;
+          };
+
+          const findPath = (directed: boolean) => {
+            const adjacency = buildAdjacency(directed);
+            const queue = [startId];
+            const visited = new Set<string>([startId]);
+            const prev = new Map<string, { nodeId: string; edgeId: string }>();
+            let head = 0;
+
+            while (head < queue.length) {
+              const current = queue[head++]!;
+              if (current === targetId) break;
+
+              const nextList = adjacency.get(current) || [];
+              nextList.forEach((next) => {
+                if (visited.has(next.nodeId)) return;
+                visited.add(next.nodeId);
+                prev.set(next.nodeId, { nodeId: current, edgeId: next.edgeId });
+                queue.push(next.nodeId);
+              });
+            }
+
+            if (!visited.has(targetId)) return null;
+
+            const pathNodeIds: string[] = [targetId];
+            const pathEdgeIds: string[] = [];
+            let cursor = targetId;
+
+            while (cursor !== startId) {
+              const p = prev.get(cursor);
+              if (!p) break;
+              pathEdgeIds.push(p.edgeId);
+              pathNodeIds.push(p.nodeId);
+              cursor = p.nodeId;
+            }
+
+            pathNodeIds.reverse();
+            pathEdgeIds.reverse();
+            return { pathNodeIds, pathEdgeIds };
+          };
+
+          let mode: "directed" | "undirected" = "directed";
+          let path = findPath(true);
+          if (!path) {
+            mode = "undirected";
+            path = findPath(false);
+          }
+
+          if (!path || path.pathEdgeIds.length === 0) {
+            return { ok: false, message: "未找到可用路径：请检查节点是否连通。" };
+          }
+
+          set({
+            pathFocusNodeIds: path.pathNodeIds,
+            pathFocusEdgeIds: path.pathEdgeIds,
+            pathFocusMode: mode,
+          });
+
+          return {
+            ok: true,
+            message: mode === "directed"
+              ? `已聚焦最短路径（有向），共 ${path.pathEdgeIds.length} 条连线。`
+              : `已聚焦最短路径（无向近邻），共 ${path.pathEdgeIds.length} 条连线。`,
+          };
+        },
+
+        clearPathFocus: () => {
+          set({ pathFocusNodeIds: [], pathFocusEdgeIds: [], pathFocusMode: null });
+        },
+
         setSearchQuery: (query) => {
           const q = query.toLowerCase().trim();
           if (!q) {
@@ -467,6 +689,89 @@ export const useGraphStore = create<GraphStore>()(
           };
         },
 
+        exportSelectedNodesData: () => {
+          const { nodes, edges, selectedNodeId } = get();
+          let selectedNodes = nodes.filter((node) => Boolean(node.selected));
+
+          // 兜底：若当前没有多选状态，但存在“当前选中节点”则按单节点导出
+          if (selectedNodes.length === 0 && selectedNodeId) {
+            const node = nodes.find((item) => item.id === selectedNodeId);
+            if (node) selectedNodes = [node];
+          }
+
+          if (selectedNodes.length === 0) return null;
+
+          const selectedNodeIdSet = new Set(selectedNodes.map((node) => node.id));
+          const selectedEdges = edges.filter((edge) => selectedNodeIdSet.has(edge.source) && selectedNodeIdSet.has(edge.target));
+
+          return {
+            nodes: selectedNodes.map((node) => ({
+              id: node.id,
+              type: "knowledgeNode",
+              position: node.position,
+              data: node.data,
+            })),
+            edges: selectedEdges.map((edge) => ({
+              id: edge.id,
+              source: edge.source,
+              target: edge.target,
+              label: typeof edge.label === "string" ? edge.label : undefined,
+            })),
+          };
+        },
+
+        exportSelectedSubgraphData: () => {
+          const { nodes, edges, selectedNodeId } = get();
+          if (!selectedNodeId) return null;
+
+          const outgoingMap = new Map<string, string[]>();
+          const incomingMap = new Map<string, string[]>();
+          edges.forEach((edge) => {
+            const out = outgoingMap.get(edge.source);
+            if (out) out.push(edge.target);
+            else outgoingMap.set(edge.source, [edge.target]);
+
+            const incoming = incomingMap.get(edge.target);
+            if (incoming) incoming.push(edge.source);
+            else incomingMap.set(edge.target, [edge.source]);
+          });
+
+          const visited = new Set<string>();
+          const queue = [selectedNodeId];
+          let head = 0;
+          visited.add(selectedNodeId);
+
+          while (head < queue.length) {
+            const current = queue[head++]!;
+            const nextIds = [...(outgoingMap.get(current) || []), ...(incomingMap.get(current) || [])];
+            nextIds.forEach((id) => {
+              if (visited.has(id)) return;
+              visited.add(id);
+              queue.push(id);
+            });
+          }
+
+          const selectedNodeSet = visited;
+          const selectedNodes = nodes.filter((node) => selectedNodeSet.has(node.id));
+          const selectedEdges = edges.filter((edge) => selectedNodeSet.has(edge.source) && selectedNodeSet.has(edge.target));
+          if (selectedNodes.length === 0) return null;
+
+          return {
+            nodes: selectedNodes.map((node) => ({
+              id: node.id,
+              type: "knowledgeNode",
+              position: node.position,
+              data: node.data,
+            })),
+            edges: selectedEdges.map((edge) => ({
+              id: edge.id,
+              source: edge.source,
+              target: edge.target,
+              label: typeof edge.label === "string" ? edge.label : undefined,
+            })),
+          };
+        },
+
         importData: (data) => {
           set({
             nodes: data.nodes.map((n) => ({
@@ -484,6 +789,9 @@ export const useGraphStore = create<GraphStore>()(
               label: e.label,
             })),
             selectedNodeId: null,
+            pathFocusNodeIds: [],
+            pathFocusEdgeIds: [],
+            pathFocusMode: null,
           });
         },
       };

@@ -16,7 +16,10 @@ const KnowledgeNode: FC<NodeProps<KnowledgeGraphNode>> = memo(({ id, data, selec
   const [isHovered, setIsHovered] = useState(false);
   const nodeData = data;
   const searchResults = useGraphStore((s) => s.searchResults);
+  const pathFocusNodeIds = useGraphStore((s) => s.pathFocusNodeIds);
   const isSearchMatch = searchResults.includes(id);
+  const isPathFocusActive = pathFocusNodeIds.length > 0;
+  const isPathFocused = pathFocusNodeIds.includes(id);
 
   // 获取节点颜色配置
   const colorConfig = NODE_COLORS[nodeData.color || "default"];
@@ -26,10 +29,19 @@ const KnowledgeNode: FC<NodeProps<KnowledgeGraphNode>> = memo(({ id, data, selec
     if (selected) {
       return { borderColor: "#B45309", boxShadow: "0 0 0 3px rgba(180,83,9,0.15)" };
     }
+    if (isPathFocusActive && isPathFocused) {
+      return { borderColor: "#0EA5E9", boxShadow: "0 0 0 3px rgba(14,165,233,0.25)" };
+    }
     if (isSearchMatch) {
       return { borderColor: "#F97316", boxShadow: "0 0 0 3px rgba(249,115,22,0.2)" };
     }
     return { borderColor: colorConfig.border };
+  };
+
+  const getNodeOpacity = () => {
+    if (!isPathFocusActive) return 1;
+    if (selected || isPathFocused) return 1;
+    return 0.35;
   };
 
   return (
@@ -43,6 +55,7 @@ const KnowledgeNode: FC<NodeProps<KnowledgeGraphNode>> = memo(({ id, data, selec
         className="node-drag-handle px-4 py-3 rounded-lg border-2 min-w-[120px] max-w-[200px] transition-all duration-200 cursor-grab active:cursor-grabbing hover:shadow-md"
         style={{
           backgroundColor: colorConfig.bg,
+          opacity: getNodeOpacity(),
           ...getBorderStyle(),
         }}
       >
