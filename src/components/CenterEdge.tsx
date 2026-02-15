@@ -1,5 +1,6 @@
 import { memo, useState, useRef, useEffect, useCallback, type FC } from "react";
-import { type EdgeProps, EdgeLabelRenderer, useReactFlow } from "@xyflow/react";
+import { type EdgeProps, EdgeLabelRenderer } from "@xyflow/react";
+import { useGraphStore } from "@/store/graphStore";
 
 /**
  * 自定义中心连接边
@@ -18,7 +19,7 @@ const CenterEdge: FC<EdgeProps> = memo(({
   label,
   data,
 }) => {
-  const { setEdges } = useReactFlow();
+  const updateEdgeLabel = useGraphStore((s) => s.updateEdgeLabel);
   const [isEditing, setIsEditing] = useState(false);
   const [editValue, setEditValue] = useState(String(label || ""));
   const inputRef = useRef<HTMLInputElement>(null);
@@ -40,14 +41,9 @@ const CenterEdge: FC<EdgeProps> = memo(({
 
   // 保存编辑
   const saveEdit = useCallback(() => {
-    const trimmedValue = editValue.trim();
-    setEdges((edges) =>
-      edges.map((edge) =>
-        edge.id === id ? { ...edge, label: trimmedValue || undefined } : edge
-      )
-    );
+    updateEdgeLabel(id, editValue);
     setIsEditing(false);
-  }, [id, editValue, setEdges]);
+  }, [id, editValue, updateEdgeLabel]);
 
   // 处理按键
   const handleKeyDown = useCallback(

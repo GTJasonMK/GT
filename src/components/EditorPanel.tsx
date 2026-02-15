@@ -9,6 +9,7 @@ import { EDGE_COLOR_OPTIONS, EDGE_COLORS, NODE_COLORS } from "@/types";
 import type { Node } from "@xyflow/react";
 import type { KnowledgeNodeData } from "@/types";
 import { useFocusNode } from "@/hooks/useFocusNode";
+import { clampLockDepth } from "@/lib/graphDataUtils";
 
 type GraphNode = Node<KnowledgeNodeData, "knowledgeNode">;
 type EditorTab = "features" | "content";
@@ -58,13 +59,11 @@ const LOCK_MODE_OPTIONS: Array<{ value: LockMode; label: string; description: st
   { value: "transitive", label: "传递", description: "固定全部可达子节点" },
 ];
 
-function clampLockDepth(value: number): number {
-  return Math.min(LOCK_DEPTH_MAX, Math.max(LOCK_DEPTH_MIN, Math.floor(value)));
-}
+const clampEditorLockDepth = (value: number) => clampLockDepth(value, LOCK_DEPTH_MIN, LOCK_DEPTH_MAX);
 
 function getLockModeLabel(lockMode: LockMode, lockDepth?: number): string {
   if (lockMode === "transitive") return "传递（所有可达子节点）";
-  if (lockMode === "level") return `固定前 ${clampLockDepth(lockDepth ?? 1)} 级子节点`;
+  if (lockMode === "level") return `固定前 ${clampEditorLockDepth(lockDepth ?? 1)} 级子节点`;
   return "仅固定直接子节点";
 }
 
@@ -145,7 +144,7 @@ const EditorPanel: FC = () => {
   useEffect(() => {
     if (!nodeData) return;
     setLockModeDraft(nodeData.lockMode || "direct");
-    setLockDepthDraft(clampLockDepth(nodeData.lockDepth ?? 2));
+    setLockDepthDraft(clampEditorLockDepth(nodeData.lockDepth ?? 2));
   }, [selectedNodeId, nodeData?.lockMode, nodeData?.lockDepth]);
 
   useEffect(() => {
@@ -277,7 +276,7 @@ const EditorPanel: FC = () => {
 
   const handleApplyLock = () => {
     if (!selectedNodeId) return;
-    const normalizedDepth = clampLockDepth(lockDepthDraft);
+    const normalizedDepth = clampEditorLockDepth(lockDepthDraft);
     updateNodeData(selectedNodeId, {
       locked: true,
       lockMode: lockModeDraft,
@@ -421,14 +420,14 @@ const EditorPanel: FC = () => {
               <div className="mt-2">
                 <div className="flex justify-between text-[11px] text-text-muted/80">
                   <span>固定层级</span>
-                  <span>{clampLockDepth(lockDepthDraft)} 级</span>
+                  <span>{clampEditorLockDepth(lockDepthDraft)} 级</span>
                 </div>
                 <input
                   type="range"
                   min={LOCK_DEPTH_MIN}
                   max={LOCK_DEPTH_MAX}
                   step={1}
-                  value={clampLockDepth(lockDepthDraft)}
+                  value={clampEditorLockDepth(lockDepthDraft)}
                   onChange={(e) => setLockDepthDraft(Number(e.currentTarget.value))}
                   className="w-full mt-1 accent-primary cursor-pointer"
                 />

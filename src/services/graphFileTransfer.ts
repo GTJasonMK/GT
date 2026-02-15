@@ -10,8 +10,13 @@ function downloadText(filename: string, contents: string, mime: string) {
   const a = document.createElement("a");
   a.href = url;
   a.download = filename;
+  a.style.display = "none";
+  document.body.appendChild(a);
   a.click();
-  URL.revokeObjectURL(url);
+  document.body.removeChild(a);
+  window.setTimeout(() => {
+    URL.revokeObjectURL(url);
+  }, 1500);
 }
 
 function pickLocalFile(accept: string): Promise<File | null> {

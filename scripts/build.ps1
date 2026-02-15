@@ -16,16 +16,16 @@ $startTime = Get-Date
 
 try {
     # 清理
-    Write-Host "[1/4] Cleaning old build..." -ForegroundColor White
+    Write-Host "[1/4] Cleaning old build" -ForegroundColor White
     if (Test-Path "dist") {
         Remove-Item -Recurse -Force "dist"
     }
     Write-Host "  OK" -ForegroundColor Green
 
     # 依赖
-    Write-Host "[2/4] Checking dependencies..." -ForegroundColor White
+    Write-Host "[2/4] Checking dependencies" -ForegroundColor White
     if (-not (Test-Path "node_modules/@tauri-apps/cli/tauri.js")) {
-        Write-Host "  Installing (missing Tauri CLI)..." -ForegroundColor Gray
+        Write-Host "  Installing (missing Tauri CLI)" -ForegroundColor Gray
         npm install
         if ($LASTEXITCODE -ne 0) {
             throw "npm install failed"
@@ -34,30 +34,50 @@ try {
     Write-Host "  OK" -ForegroundColor Green
 
     # 前端构建
-    Write-Host "[3/4] Building frontend..." -ForegroundColor White
+    Write-Host "[3/4] Building frontend" -ForegroundColor White
     npm run build
     if ($LASTEXITCODE -ne 0) {
         throw "Frontend build failed"
     }
     Write-Host "  OK" -ForegroundColor Green
 
-    # Tauri 构建
+    # 统一清理代理与镜像环境
+    Remove-Item Env:HTTP_PROXY -ErrorAction SilentlyContinue
+    Remove-Item Env:HTTPS_PROXY -ErrorAction SilentlyContinue
+    Remove-Item Env:ALL_PROXY -ErrorAction SilentlyContinue
+    Remove-Item Env:http_proxy -ErrorAction SilentlyContinue
+    Remove-Item Env:https_proxy -ErrorAction SilentlyContinue
+    Remove-Item Env:all_proxy -ErrorAction SilentlyContinue
+    Remove-Item Env:TAURI_BUNDLER_TOOLS_GITHUB_MIRROR -ErrorAction SilentlyContinue
+    Remove-Item Env:TAURI_BUNDLER_TOOLS_GITHUB_MIRROR_TEMPLATE -ErrorAction SilentlyContinue
+    # Tauri 构建前环境配置
     if ($env:GAT_PROXY_URL) {
-        Write-Host "[4/4] Building Tauri app with proxy $($env:GAT_PROXY_URL)..." -ForegroundColor White
+        Write-Host "[4/4] Proxy enabled: $($env:GAT_PROXY_URL)" -ForegroundColor White
         $env:HTTP_PROXY = $env:GAT_PROXY_URL
         $env:HTTPS_PROXY = $env:GAT_PROXY_URL
+        $env:ALL_PROXY = $env:GAT_PROXY_URL
     } else {
-        Write-Host "[4/4] Building Tauri app (proxy disabled)..." -ForegroundColor White
-        Remove-Item Env:HTTP_PROXY -ErrorAction SilentlyContinue
-        Remove-Item Env:HTTPS_PROXY -ErrorAction SilentlyContinue
-        Remove-Item Env:ALL_PROXY -ErrorAction SilentlyContinue
-        Remove-Item Env:http_proxy -ErrorAction SilentlyContinue
-        Remove-Item Env:https_proxy -ErrorAction SilentlyContinue
-        Remove-Item Env:all_proxy -ErrorAction SilentlyContinue
+        Write-Host "[4/4] Proxy disabled" -ForegroundColor White
     }
 
+    if ($env:GAT_GITHUB_MIRROR_TEMPLATE) {
+        $env:TAURI_BUNDLER_TOOLS_GITHUB_MIRROR_TEMPLATE = $env:GAT_GITHUB_MIRROR_TEMPLATE
+        Write-Host "[4/4] Tauri mirror template enabled:" -ForegroundColor White
+        Write-Host "      $($env:GAT_GITHUB_MIRROR_TEMPLATE)" -ForegroundColor Gray
+    } elseif ($env:GAT_GITHUB_MIRROR) {
+        $env:TAURI_BUNDLER_TOOLS_GITHUB_MIRROR = $env:GAT_GITHUB_MIRROR
+        Write-Host "[4/4] Tauri mirror enabled:" -ForegroundColor White
+        Write-Host "      $($env:GAT_GITHUB_MIRROR)" -ForegroundColor Gray
+    } else {
+        Write-Host "[4/4] Tauri mirror disabled. Using direct GitHub download." -ForegroundColor White
+    }
+
+    Write-Host "[4/4] Building Tauri app" -ForegroundColor White
     npm run tauri -- build
     if ($LASTEXITCODE -ne 0) {
+        Write-Host "Hint: If GitHub download times out, set GAT_GITHUB_MIRROR_TEMPLATE." -ForegroundColor Yellow
+        Write-Host "Example:" -ForegroundColor Yellow
+        Write-Host '  $env:GAT_GITHUB_MIRROR_TEMPLATE = "https://ghproxy.com/https://github.com/<owner>/<repo>/releases/download/<version>/<asset>"' -ForegroundColor Yellow
         throw "Tauri build failed"
     }
     Write-Host "  OK" -ForegroundColor Green

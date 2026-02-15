@@ -35,7 +35,7 @@ export const useKeyboardShortcuts = () => {
       }
 
       // Ctrl+Z: 撤销
-      if ((e.ctrlKey || e.metaKey) && e.key === "z" && !e.shiftKey) {
+      if ((e.ctrlKey || e.metaKey) && e.key === "z" && !e.shiftKey && !isInput) {
         e.preventDefault();
         const { undo } = useTemporalStore.getState();
         undo();
@@ -43,7 +43,7 @@ export const useKeyboardShortcuts = () => {
       }
 
       // Ctrl+Y 或 Ctrl+Shift+Z: 重做
-      if ((e.ctrlKey || e.metaKey) && (e.key === "y" || (e.key === "z" && e.shiftKey))) {
+      if ((e.ctrlKey || e.metaKey) && (e.key === "y" || (e.key === "z" && e.shiftKey)) && !isInput) {
         e.preventDefault();
         const { redo } = useTemporalStore.getState();
         redo();

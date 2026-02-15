@@ -1,13 +1,14 @@
-import { useCallback, useEffect, useRef, useState, type FC } from "react";
+import { Suspense, lazy, useCallback, useEffect, useRef, useState, type FC } from "react";
 import { ReactFlowProvider } from "@xyflow/react";
-import GraphCanvas from "./components/GraphCanvas";
-import EditorPanel from "./components/EditorPanel";
-import NodeOutline from "./components/NodeOutline";
 import Toolbar from "./components/Toolbar";
 import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts";
 import { useGraphPersistence } from "./hooks/useGraphPersistence";
 import { useGraphAutoSave } from "./hooks/useGraphAutoSave";
 import { useSettingsStore, PANEL_WIDTH_LIMITS } from "./store/settingsStore";
+
+const GraphCanvas = lazy(() => import("./components/GraphCanvas"));
+const NodeOutline = lazy(() => import("./components/NodeOutline"));
+const EditorPanel = lazy(() => import("./components/EditorPanel"));
 
 const AppContent: FC = () => {
   useKeyboardShortcuts();
@@ -32,7 +33,7 @@ const AppContent: FC = () => {
       dragStartXRef.current = e.clientX;
       dragStartWidthRef.current = leftPanelWidth;
     },
-    [leftPanelWidth]
+    [leftPanelWidth],
   );
 
   // 右侧面板拖拽开始
@@ -43,7 +44,7 @@ const AppContent: FC = () => {
       dragStartXRef.current = e.clientX;
       dragStartWidthRef.current = rightPanelWidth;
     },
-    [rightPanelWidth]
+    [rightPanelWidth],
   );
 
   // 鼠标移动处理
@@ -55,14 +56,14 @@ const AppContent: FC = () => {
         const delta = e.clientX - dragStartXRef.current;
         const newWidth = Math.min(
           Math.max(dragStartWidthRef.current + delta, PANEL_WIDTH_LIMITS.left.min),
-          PANEL_WIDTH_LIMITS.left.max
+          PANEL_WIDTH_LIMITS.left.max,
         );
         setPanelSettings({ leftPanelWidth: newWidth });
       } else if (isDraggingRight) {
         const delta = dragStartXRef.current - e.clientX;
         const newWidth = Math.min(
           Math.max(dragStartWidthRef.current + delta, PANEL_WIDTH_LIMITS.right.min),
-          PANEL_WIDTH_LIMITS.right.max
+          PANEL_WIDTH_LIMITS.right.max,
         );
         setPanelSettings({ rightPanelWidth: newWidth });
       }
@@ -103,7 +104,11 @@ const AppContent: FC = () => {
           className="bg-white border-r border-border flex flex-col shrink-0"
           style={{ width: leftPanelWidth }}
         >
-          <NodeOutline />
+          <Suspense
+            fallback={<div className="h-full flex items-center justify-center text-xs text-text-muted">加载节点大纲中...</div>}
+          >
+            <NodeOutline />
+          </Suspense>
         </div>
 
         {/* 左侧拖拽手柄 */}
@@ -121,7 +126,11 @@ const AppContent: FC = () => {
 
         {/* 图画布 */}
         <div className="flex-1 min-w-0">
-          <GraphCanvas />
+          <Suspense
+            fallback={<div className="h-full flex items-center justify-center text-xs text-text-muted">加载图画布中...</div>}
+          >
+            <GraphCanvas />
+          </Suspense>
         </div>
 
         {/* 右侧拖拽手柄 */}
@@ -142,7 +151,11 @@ const AppContent: FC = () => {
           className="bg-white border-l border-border flex flex-col shrink-0"
           style={{ width: rightPanelWidth }}
         >
-          <EditorPanel />
+          <Suspense
+            fallback={<div className="flex-1 flex items-center justify-center text-xs text-text-muted">加载节点面板中...</div>}
+          >
+            <EditorPanel />
+          </Suspense>
         </div>
       </div>
 

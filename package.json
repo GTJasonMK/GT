@@ -7,10 +7,11 @@
     "dev": "vite",
     "dev:app": "npm run tauri -- dev",
     "build": "tsc -b && vite build",
-    "build:app": "set HTTP_PROXY=socks5://127.0.0.1:7897&& set HTTPS_PROXY=socks5://127.0.0.1:7897&& npm run tauri -- build",
+    "build:app": "npm run tauri -- build",
     "preview": "vite preview",
     "tauri": "node ./node_modules/@tauri-apps/cli/tauri.js",
-    "start": "npm run tauri -- dev"
+    "start": "npm run tauri -- dev",
+    "test:regression": "npm exec --yes tsx scripts/regression/core-regression.ts"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.9.1",

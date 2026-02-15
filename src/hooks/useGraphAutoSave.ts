@@ -13,6 +13,7 @@ interface AutoSaveOptions {
 export function useGraphAutoSave(options: AutoSaveOptions = {}) {
   const { enabled = true, debounceMs = 1000 } = options;
   const saveData = useGraphStore((s) => s.saveData);
+  const markSaveStatusIdle = useGraphStore((s) => s.markSaveStatusIdle);
 
   useEffect(() => {
     if (!enabled) return;
@@ -20,13 +21,11 @@ export function useGraphAutoSave(options: AutoSaveOptions = {}) {
     let timer: ReturnType<typeof setTimeout> | null = null;
     const unsubscribe = useGraphStore.subscribe(
       (s) => ({ nodes: s.nodes, edges: s.edges }),
-      ({ nodes }) => {
+      (_snapshot) => {
+        markSaveStatusIdle();
         if (timer) clearTimeout(timer);
         timer = setTimeout(() => {
-          // 只在有节点数据时才自动保存，避免初始化时覆盖
-          if (nodes.length > 0) {
-            saveData();
-          }
+          saveData();
         }, debounceMs);
       },
       { equalityFn: (a, b) => a.nodes === b.nodes && a.edges === b.edges },
@@ -36,6 +35,6 @@ export function useGraphAutoSave(options: AutoSaveOptions = {}) {
       unsubscribe();
       if (timer) clearTimeout(timer);
     };
-  }, [enabled, debounceMs, saveData]);
+  }, [enabled, debounceMs, saveData, markSaveStatusIdle]);
 }
 

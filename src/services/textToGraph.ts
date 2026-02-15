@@ -28,6 +28,15 @@ function splitToConcepts(text: string): string[] {
   return Array.from(new Set(tokens)).slice(0, 80);
 }
 
+function escapeHtml(text: string): string {
+  return text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
 export function parseTextToGraph(text: string, options?: ParseTextToGraphOptions): GraphData | null {
   const concepts = splitToConcepts(text);
   if (concepts.length === 0) return null;
@@ -38,7 +47,7 @@ export function parseTextToGraph(text: string, options?: ParseTextToGraphOptions
 
   const centerData: KnowledgeNodeData = {
     label: sourceLabel,
-    content: `<p>${sourceLabel}</p>`,
+    content: `<p>${escapeHtml(sourceLabel)}</p>`,
     tags: ["AI生成"],
     createdAt: now,
     updatedAt: now,
@@ -65,7 +74,7 @@ export function parseTextToGraph(text: string, options?: ParseTextToGraphOptions
 
     const data: KnowledgeNodeData = {
       label: concept.slice(0, 36),
-      content: `<p>${concept}</p>`,
+      content: `<p>${escapeHtml(concept)}</p>`,
       tags: ["AI生成"],
       createdAt: now,
       updatedAt: now,

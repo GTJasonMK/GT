@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState, type FC } from "react";
+import { Suspense, lazy, useCallback, useMemo, useState, type FC } from "react";
 import {
   ReactFlow,
   Controls,
@@ -18,7 +18,6 @@ import { useStoreWithEqualityFn } from "zustand/traditional";
 
 import KnowledgeNode from "./KnowledgeNode";
 import CenterEdge from "./CenterEdge";
-import ContextMenu from "./ContextMenu";
 import { useGraphStore } from "@/store/graphStore";
 import { useSettingsStore } from "@/store/settingsStore";
 import { useTheme } from "@/hooks/useTheme";
@@ -52,6 +51,9 @@ const nodeTypes = {
 const edgeTypes = {
   centerEdge: CenterEdge,
 };
+
+const preloadContextMenu = () => import("./ContextMenu");
+const ContextMenu = lazy(preloadContextMenu);
 
 /**
  * 图画布组件
@@ -194,6 +196,7 @@ const GraphCanvas: FC = () => {
   const handlePaneContextMenu = useCallback(
     (event: MouseEvent | React.MouseEvent) => {
       event.preventDefault();
+      preloadContextMenu();
       if (!shouldShowContextMenu()) return;
       setContextMenu({
         x: (event as React.MouseEvent).clientX ?? (event as MouseEvent).clientX,
@@ -208,6 +211,7 @@ const GraphCanvas: FC = () => {
   const handleNodeContextMenu: NodeMouseHandler<GraphNode> = useCallback(
     (event, node) => {
       event.preventDefault();
+      preloadContextMenu();
       if (!shouldShowContextMenu()) return;
       setSelectedNodeId(node.id);
       setContextMenu({
@@ -224,6 +228,7 @@ const GraphCanvas: FC = () => {
   const handleEdgeContextMenu: EdgeMouseHandler<GraphEdge> = useCallback(
     (event, edge) => {
       event.preventDefault();
+      preloadContextMenu();
       if (!shouldShowContextMenu()) return;
       setContextMenu({
         x: event.clientX,
@@ -350,12 +355,14 @@ const GraphCanvas: FC = () => {
 
       {/* 右键上下文菜单 */}
       {contextMenu && (
-        <ContextMenu
-          x={contextMenu.x}
-          y={contextMenu.y}
-          items={contextMenuItems}
-          onClose={closeContextMenu}
-        />
+        <Suspense fallback={null}>
+          <ContextMenu
+            x={contextMenu.x}
+            y={contextMenu.y}
+            items={contextMenuItems}
+            onClose={closeContextMenu}
+          />
+        </Suspense>
       )}
     </>
   );

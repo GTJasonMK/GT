@@ -11,44 +11,20 @@ import {
   type OnEdgesChange,
   type OnConnect,
 } from "@xyflow/react";
-import { EDGE_COLORS, EDGE_IMPORTANCE_RANKS, type KnowledgeNodeData, type GraphData, type EdgeColor, type LockMode, type NodeColor } from "@/types";
-import { loadGraphData, saveGraphData } from "@/services/graphStorage";
+import { EDGE_IMPORTANCE_RANKS, type KnowledgeNodeData, type GraphData, type EdgeColor, type LockMode, type NodeColor } from "@/types";
 import { type AutoLayoutOptions, computeAutoLayoutPositions } from "@/lib/graphAutoLayout";
+import { clampLockDepth, normalizeEdgeColor, normalizeTagList } from "@/lib/graphDataUtils";
+import { createPathFocusSlice } from "@/store/slices/createPathFocusSlice";
+import { createSearchSlice } from "@/store/slices/createSearchSlice";
+import { createEdgeSlice } from "@/store/slices/createEdgeSlice";
+import { createPersistenceSlice } from "@/store/slices/createPersistenceSlice";
+import { prunePathFocusState, recomputeSearchResults, resolveNextSelectedNodeId, resolveSelectedNodeIds } from "@/store/slices/graphHelpers";
 
 // 生成唯一 ID
 const generateId = () => `node_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 
-type GraphNode = Node<KnowledgeNodeData, "knowledgeNode">;
-type GraphEdge = Edge;
-
-const EDGE_COLOR_MIGRATION_MAP: Record<string, EdgeColor> = {
-  core: "p0",
-  important: "p3",
-  normal: "p5",
-  minor: "p6",
-};
-
-function normalizeEdgeColor(value: unknown): EdgeColor {
-  if (typeof value !== "string") return "default";
-  if (Object.prototype.hasOwnProperty.call(EDGE_COLORS, value)) return value as EdgeColor;
-  return EDGE_COLOR_MIGRATION_MAP[value] ?? "default";
-}
-
-function resolveSelectedNodeIds(nodes: GraphNode[], selectedNodeId: string | null): string[] {
-  const multiSelectedIds = nodes.filter((node) => Boolean(node.selected)).map((node) => node.id);
-  if (multiSelectedIds.length > 0) return multiSelectedIds;
-  if (!selectedNodeId) return [];
-  return nodes.some((node) => node.id === selectedNodeId) ? [selectedNodeId] : [];
-}
-
-function normalizeTagList(tags: string[]): string[] {
-  const nextTags = tags.map((tag) => tag.trim()).filter(Boolean);
-  return Array.from(new Set(nextTags));
-}
-
-function clampLockDepth(depth: number): number {
-  return Math.max(1, Math.floor(depth));
-}
+export type GraphNode = Node<KnowledgeNodeData, "knowledgeNode">;
+export type GraphEdge = Edge;
 
 export interface BatchNodeEditPayload {
   color?: NodeColor;
@@ -62,7 +38,7 @@ export interface BatchNodeEditPayload {
   };
 }
 
-interface GraphStore {
+export interface GraphStore {
   nodes: GraphNode[];
   edges: GraphEdge[];
   selectedNodeId: string | null;
@@ -94,6 +70,7 @@ interface GraphStore {
   applyBatchEditToSelectedNodes: (payload: BatchNodeEditPayload) => { ok: boolean; count: number; message: string };
   focusShortestPathBetweenSelectedNodes: () => { ok: boolean; message: string };
   clearPathFocus: () => void;
+  markSaveStatusIdle: () => void;
 
   // 搜索
   setSearchQuery: (query: string) => void;
@@ -120,6 +97,7 @@ export const useGraphStore = create<GraphStore>()(
         // 这里做“拖拽批处理”：允许第一帧写入撤销栈（记录拖拽前状态），随后暂停追踪，直到拖拽结束再恢复。
         let shouldPauseHistoryAfterNextUpdate = false;
         let isHistoryPausedByDrag = false;
+        let latestSaveRequestId = 0;
 
         const pauseHistoryTrackingIfRequested = () => {
           if (!shouldPauseHistoryAfterNextUpdate) return;
@@ -146,17 +124,55 @@ export const useGraphStore = create<GraphStore>()(
         searchResults: [],
 
         onNodesChange: (changes) => {
-          set({ nodes: applyNodeChanges(changes, get().nodes) });
+          set((state) => {
+            const nextNodes = applyNodeChanges(changes, state.nodes);
+            return {
+              nodes: nextNodes,
+              searchResults: recomputeSearchResults(nextNodes, state.searchQuery),
+              selectedNodeId: resolveNextSelectedNodeId(nextNodes, state.selectedNodeId),
+              ...prunePathFocusState({
+                pathFocusNodeIds: state.pathFocusNodeIds,
+                pathFocusEdgeIds: state.pathFocusEdgeIds,
+                pathFocusMode: state.pathFocusMode,
+                validNodeIds: new Set(nextNodes.map((node) => node.id)),
+                validEdgeIds: new Set(state.edges.map((edge) => edge.id)),
+              }),
+            };
+          });
           pauseHistoryTrackingIfRequested();
         },
 
         onEdgesChange: (changes) => {
-          set({ edges: applyEdgeChanges(changes, get().edges) });
+          set((state) => {
+            const nextEdges = applyEdgeChanges(changes, state.edges);
+            return {
+              edges: nextEdges,
+              ...prunePathFocusState({
+                pathFocusNodeIds: state.pathFocusNodeIds,
+                pathFocusEdgeIds: state.pathFocusEdgeIds,
+                pathFocusMode: state.pathFocusMode,
+                validNodeIds: new Set(state.nodes.map((node) => node.id)),
+                validEdgeIds: new Set(nextEdges.map((edge) => edge.id)),
+              }),
+            };
+          });
           pauseHistoryTrackingIfRequested();
         },
 
         onConnect: (connection) => {
-          set({ edges: addEdge({ ...connection, type: "centerEdge" }, get().edges) });
+          set((state) => {
+            const nextEdges = addEdge({ ...connection, type: "centerEdge" }, state.edges);
+            return {
+              edges: nextEdges,
+              ...prunePathFocusState({
+                pathFocusNodeIds: state.pathFocusNodeIds,
+                pathFocusEdgeIds: state.pathFocusEdgeIds,
+                pathFocusMode: state.pathFocusMode,
+                validNodeIds: new Set(state.nodes.map((node) => node.id)),
+                validEdgeIds: new Set(nextEdges.map((edge) => edge.id)),
+              }),
+            };
+          });
         },
 
         addNode: (position, label) => {
@@ -164,7 +180,7 @@ export const useGraphStore = create<GraphStore>()(
           const now = Date.now();
           const newNode: GraphNode = {
             id,
-            type: "knowledgeNode",
+            type: "knowledgeNode" as const,
             position,
             dragHandle: ".node-drag-handle",
             data: {
@@ -175,27 +191,49 @@ export const useGraphStore = create<GraphStore>()(
               updatedAt: now,
             } satisfies KnowledgeNodeData,
           };
-          set({ nodes: [...get().nodes, newNode] });
+          set((state) => {
+            const nextNodes = [...state.nodes, newNode];
+            return {
+              nodes: nextNodes,
+              searchResults: recomputeSearchResults(nextNodes, state.searchQuery),
+            };
+          });
           return id;
         },
 
         updateNodeData: (nodeId, data) => {
-          set({
-            nodes: get().nodes.map((node) => {
+          set((state) => {
+            const nextNodes = state.nodes.map((node) => {
               if (node.id !== nodeId) return node;
               return {
                 ...node,
                 data: { ...node.data, ...data, updatedAt: Date.now() },
               };
-            }),
+            });
+            return {
+              nodes: nextNodes,
+              searchResults: recomputeSearchResults(nextNodes, state.searchQuery),
+            };
           });
         },
 
         deleteNode: (nodeId) => {
-          set({
-            nodes: get().nodes.filter((n) => n.id !== nodeId),
-            edges: get().edges.filter((e) => e.source !== nodeId && e.target !== nodeId),
-            selectedNodeId: get().selectedNodeId === nodeId ? null : get().selectedNodeId,
+          set((state) => {
+            const nextNodes = state.nodes.filter((node) => node.id !== nodeId);
+            const nextEdges = state.edges.filter((edge) => edge.source !== nodeId && edge.target !== nodeId);
+            return {
+              nodes: nextNodes,
+              edges: nextEdges,
+              selectedNodeId: state.selectedNodeId === nodeId ? null : state.selectedNodeId,
+              searchResults: recomputeSearchResults(nextNodes, state.searchQuery),
+              ...prunePathFocusState({
+                pathFocusNodeIds: state.pathFocusNodeIds,
+                pathFocusEdgeIds: state.pathFocusEdgeIds,
+                pathFocusMode: state.pathFocusMode,
+                validNodeIds: new Set(nextNodes.map((node) => node.id)),
+                validEdgeIds: new Set(nextEdges.map((edge) => edge.id)),
+              }),
+            };
           });
         },
 
@@ -208,7 +246,7 @@ export const useGraphStore = create<GraphStore>()(
           const nodeData = node.data;
           const newNode: GraphNode = {
             id,
-            type: "knowledgeNode",
+            type: "knowledgeNode" as const,
             position: {
               x: node.position.x + 30,
               y: node.position.y + 30,
@@ -221,12 +259,33 @@ export const useGraphStore = create<GraphStore>()(
               updatedAt: now,
             } satisfies KnowledgeNodeData,
           };
-          set({ nodes: [...get().nodes, newNode], selectedNodeId: id });
+          set((state) => {
+            const nextNodes = [...state.nodes, newNode];
+            return {
+              nodes: nextNodes,
+              selectedNodeId: id,
+              searchResults: recomputeSearchResults(nextNodes, state.searchQuery),
+            };
+          });
           return id;
         },
 
         setSelectedNodeId: (nodeId) => {
-          set({ selectedNodeId: nodeId });
+          set((state) => {
+            const targetNodeId = nodeId && state.nodes.some((node) => node.id === nodeId) ? nodeId : null;
+            const nextNodes = state.nodes.map((node) => {
+              const nextSelected = targetNodeId !== null && node.id === targetNodeId;
+              if (Boolean(node.selected) === nextSelected) return node;
+              return {
+                ...node,
+                selected: nextSelected,
+              };
+            });
+            return {
+              selectedNodeId: targetNodeId,
+              nodes: nextNodes,
+            };
+          });
         },
 
         setNodeEdgeColor: (nodeId, edgeColor) => {
@@ -526,274 +585,20 @@ export const useGraphStore = create<GraphStore>()(
           };
         },
 
-        focusShortestPathBetweenSelectedNodes: () => {
-          const { nodes, edges, selectedNodeId } = get();
-          let selectedNodes = nodes.filter((node) => Boolean(node.selected));
+        ...createPathFocusSlice({ set, get }),
 
-          // 兼容：若没有多选状态，保留单选结果用于提示
-          if (selectedNodes.length === 0 && selectedNodeId) {
-            const single = nodes.find((node) => node.id === selectedNodeId);
-            if (single) selectedNodes = [single];
-          }
+        ...createSearchSlice({ set, get }),
 
-          if (selectedNodes.length !== 2) {
-            return { ok: false, message: "请先框选两个节点，再执行一键聚焦路径。" };
-          }
+        ...createEdgeSlice({ set, get }),
 
-          const startId = selectedNodes[0]!.id;
-          const targetId = selectedNodes[1]!.id;
-
-          const buildAdjacency = (directed: boolean) => {
-            const map = new Map<string, Array<{ nodeId: string; edgeId: string }>>();
-            nodes.forEach((node) => map.set(node.id, []));
-
-            edges.forEach((edge) => {
-              map.get(edge.source)?.push({ nodeId: edge.target, edgeId: edge.id });
-              if (!directed) {
-                map.get(edge.target)?.push({ nodeId: edge.source, edgeId: edge.id });
-              }
-            });
-
-            return map;
-          };
-
-          const findPath = (directed: boolean) => {
-            const adjacency = buildAdjacency(directed);
-            const queue = [startId];
-            const visited = new Set<string>([startId]);
-            const prev = new Map<string, { nodeId: string; edgeId: string }>();
-            let head = 0;
-
-            while (head < queue.length) {
-              const current = queue[head++]!;
-              if (current === targetId) break;
-
-              const nextList = adjacency.get(current) || [];
-              nextList.forEach((next) => {
-                if (visited.has(next.nodeId)) return;
-                visited.add(next.nodeId);
-                prev.set(next.nodeId, { nodeId: current, edgeId: next.edgeId });
-                queue.push(next.nodeId);
-              });
-            }
-
-            if (!visited.has(targetId)) return null;
-
-            const pathNodeIds: string[] = [targetId];
-            const pathEdgeIds: string[] = [];
-            let cursor = targetId;
-
-            while (cursor !== startId) {
-              const p = prev.get(cursor);
-              if (!p) break;
-              pathEdgeIds.push(p.edgeId);
-              pathNodeIds.push(p.nodeId);
-              cursor = p.nodeId;
-            }
-
-            pathNodeIds.reverse();
-            pathEdgeIds.reverse();
-            return { pathNodeIds, pathEdgeIds };
-          };
-
-          let mode: "directed" | "undirected" = "directed";
-          let path = findPath(true);
-          if (!path) {
-            mode = "undirected";
-            path = findPath(false);
-          }
-
-          if (!path || path.pathEdgeIds.length === 0) {
-            return { ok: false, message: "未找到可用路径：请检查节点是否连通。" };
-          }
-
-          set({
-            pathFocusNodeIds: path.pathNodeIds,
-            pathFocusEdgeIds: path.pathEdgeIds,
-            pathFocusMode: mode,
-          });
-
-          return {
-            ok: true,
-            message: mode === "directed"
-              ? `已聚焦最短路径（有向），共 ${path.pathEdgeIds.length} 条连线。`
-              : `已聚焦最短路径（无向近邻），共 ${path.pathEdgeIds.length} 条连线。`,
-          };
-        },
-
-        clearPathFocus: () => {
-          set({ pathFocusNodeIds: [], pathFocusEdgeIds: [], pathFocusMode: null });
-        },
-
-        setSearchQuery: (query) => {
-          const q = query.toLowerCase().trim();
-          if (!q) {
-            set({ searchQuery: "", searchResults: [] });
-            return;
-          }
-          const results = get().nodes
-            .filter((node) => {
-              const labelMatch = node.data.label?.toLowerCase().includes(q);
-              const tagMatch = node.data.tags?.some((tag) => tag.toLowerCase().includes(q));
-              const contentMatch = node.data.content?.toLowerCase().includes(q);
-              return labelMatch || tagMatch || contentMatch;
-            })
-            .map((n) => n.id);
-          set({ searchQuery: query, searchResults: results });
-        },
-
-        updateEdgeLabel: (edgeId, label) => {
-          set({
-            edges: get().edges.map((edge) => {
-              if (edge.id !== edgeId) return edge;
-              return { ...edge, label };
-            }),
-          });
-        },
-
-        saveData: async () => {
-          set({ saveStatus: "saving" });
-          try {
-            await saveGraphData(get().exportData());
-            set({ saveStatus: "saved" });
-          } catch (e) {
-            console.error("保存失败:", e);
-            set({ saveStatus: "idle" });
-          }
-        },
-
-        loadData: async () => {
-          try {
-            const data = await loadGraphData();
-            if (data) get().importData(data);
-          } catch (e) {
-            console.error("加载数据失败:", e);
-          }
-        },
-
-        exportData: () => {
-          const { nodes, edges } = get();
-          return {
-            nodes: nodes.map((n) => ({
-              id: n.id,
-              type: "knowledgeNode",
-              position: n.position,
-              data: n.data,
-            })),
-            edges: edges.map((e) => ({
-              id: e.id,
-              source: e.source,
-              target: e.target,
-              label: typeof e.label === "string" ? e.label : undefined,
-            })),
-          };
-        },
-
-        exportSelectedNodesData: () => {
-          const { nodes, edges, selectedNodeId } = get();
-          let selectedNodes = nodes.filter((node) => Boolean(node.selected));
-
-          // 兜底：若当前没有多选状态，但存在“当前选中节点”则按单节点导出
-          if (selectedNodes.length === 0 && selectedNodeId) {
-            const node = nodes.find((item) => item.id === selectedNodeId);
-            if (node) selectedNodes = [node];
-          }
-
-          if (selectedNodes.length === 0) return null;
-
-          const selectedNodeIdSet = new Set(selectedNodes.map((node) => node.id));
-          const selectedEdges = edges.filter((edge) => selectedNodeIdSet.has(edge.source) && selectedNodeIdSet.has(edge.target));
-
-          return {
-            nodes: selectedNodes.map((node) => ({
-              id: node.id,
-              type: "knowledgeNode",
-              position: node.position,
-              data: node.data,
-            })),
-            edges: selectedEdges.map((edge) => ({
-              id: edge.id,
-              source: edge.source,
-              target: edge.target,
-              label: typeof edge.label === "string" ? edge.label : undefined,
-            })),
-          };
-        },
-
-        exportSelectedSubgraphData: () => {
-          const { nodes, edges, selectedNodeId } = get();
-          if (!selectedNodeId) return null;
-
-          const outgoingMap = new Map<string, string[]>();
-          const incomingMap = new Map<string, string[]>();
-          edges.forEach((edge) => {
-            const out = outgoingMap.get(edge.source);
-            if (out) out.push(edge.target);
-            else outgoingMap.set(edge.source, [edge.target]);
-
-            const incoming = incomingMap.get(edge.target);
-            if (incoming) incoming.push(edge.source);
-            else incomingMap.set(edge.target, [edge.source]);
-          });
-
-          const visited = new Set<string>();
-          const queue = [selectedNodeId];
-          let head = 0;
-          visited.add(selectedNodeId);
-
-          while (head < queue.length) {
-            const current = queue[head++]!;
-            const nextIds = [...(outgoingMap.get(current) || []), ...(incomingMap.get(current) || [])];
-            nextIds.forEach((id) => {
-              if (visited.has(id)) return;
-              visited.add(id);
-              queue.push(id);
-            });
-          }
-
-          const selectedNodeSet = visited;
-          const selectedNodes = nodes.filter((node) => selectedNodeSet.has(node.id));
-          const selectedEdges = edges.filter((edge) => selectedNodeSet.has(edge.source) && selectedNodeSet.has(edge.target));
-          if (selectedNodes.length === 0) return null;
-
-          return {
-            nodes: selectedNodes.map((node) => ({
-              id: node.id,
-              type: "knowledgeNode",
-              position: node.position,
-              data: node.data,
-            })),
-            edges: selectedEdges.map((edge) => ({
-              id: edge.id,
-              source: edge.source,
-              target: edge.target,
-              label: typeof edge.label === "string" ? edge.label : undefined,
-            })),
-          };
-        },
-
-        importData: (data) => {
-          set({
-            nodes: data.nodes.map((n) => ({
-              id: n.id,
-              type: "knowledgeNode",
-              position: n.position,
-              dragHandle: ".node-drag-handle",
-              data: { ...n.data, edgeColor: normalizeEdgeColor(n.data.edgeColor) },
-            })),
-            edges: data.edges.map((e) => ({
-              id: e.id,
-              source: e.source,
-              target: e.target,
-              type: "centerEdge",
-              label: e.label,
-            })),
-            selectedNodeId: null,
-            pathFocusNodeIds: [],
-            pathFocusEdgeIds: [],
-            pathFocusMode: null,
-          });
-        },
+        ...createPersistenceSlice({
+          set,
+          get,
+          saveRequestTracker: {
+            nextRequestId: () => ++latestSaveRequestId,
+            isLatestRequest: (requestId) => requestId === latestSaveRequestId,
+          },
+        }),
       };
       },
       {

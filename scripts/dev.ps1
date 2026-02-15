@@ -18,11 +18,17 @@ function Stop-DevServer {
     Write-Host ""
     Write-Host "[Cleanup] Stopping all processes..." -ForegroundColor Yellow
 
-    # 终止 node 进程 (Vite)
-    Get-Process -Name "node" -ErrorAction SilentlyContinue | ForEach-Object {
+    # 仅终止本项目占用端口的开发进程，避免误伤其他 Node 服务
+    foreach ($port in @(1420, 1421)) {
         try {
-            Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue
-            Write-Host "  Stopped node process: $($_.Id)" -ForegroundColor Gray
+            Get-NetTCPConnection -State Listen -LocalPort $port -ErrorAction Stop |
+                Select-Object -ExpandProperty OwningProcess -Unique |
+                ForEach-Object {
+                    if ($_ -gt 0) {
+                        Stop-Process -Id $_ -Force -ErrorAction SilentlyContinue
+                        Write-Host "  Stopped port $port process: $($_)" -ForegroundColor Gray
+                    }
+                }
         }
         catch { }
     }

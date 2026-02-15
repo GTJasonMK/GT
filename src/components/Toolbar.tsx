@@ -1,5 +1,4 @@
-import { useCallback, useState, type FC } from "react";
-import { toPng } from "html-to-image";
+import { Suspense, lazy, useCallback, useState, type FC } from "react";
 import { useStore } from "zustand";
 import { useGraphStore, useTemporalStore } from "@/store/graphStore";
 import { useSettingsStore } from "@/store/settingsStore";
@@ -9,9 +8,15 @@ import { exportPngDataUrl } from "@/services/imageExport";
 import { parseTextToGraph } from "@/services/textToGraph";
 import { CANVAS_ELEMENT_ID } from "@/constants/dom";
 import { EDGE_COLORS, EDGE_COLOR_OPTIONS, NODE_COLORS, type EdgeColor, type LockMode, type NodeColor } from "@/types";
+import { clampLockDepth } from "@/lib/graphDataUtils";
 import SearchBar from "./SearchBar";
-import KeyboardShortcutsPanel from "./KeyboardShortcutsPanel";
-import SettingsPanel from "./SettingsPanel";
+
+const preloadKeyboardShortcutsPanel = () => import("./KeyboardShortcutsPanel");
+const preloadSettingsPanel = () => import("./SettingsPanel");
+const preloadImageExporter = () => import("html-to-image");
+
+const KeyboardShortcutsPanel = lazy(preloadKeyboardShortcutsPanel);
+const SettingsPanel = lazy(preloadSettingsPanel);
 
 /**
  * 工具栏组件
@@ -125,6 +130,7 @@ const Toolbar: FC = () => {
 
     setIsExportingImage(true);
     try {
+      const { toPng } = await preloadImageExporter();
       const backgroundColor = theme === "dark" ? "#0F172A" : "#F8FAFC";
       const dataUrl = await toPng(reactFlowElement, {
         backgroundColor,
@@ -160,7 +166,7 @@ const Toolbar: FC = () => {
   }, [importData, textToGraphInput, textToGraphTitle]);
 
   // 保存状态文字
-  const saveStatusText = saveStatus === "saving" ? "保存中..." : saveStatus === "saved" ? "已保存" : "";
+  const saveStatusText = saveStatus === "saving" ? "保存中" : saveStatus === "saved" ? "已保存" : "";
   const effectiveSelectedCount = selectedNodeCount > 0 ? selectedNodeCount : selectedNodeId ? 1 : 0;
   const canExportSelectedNodes = effectiveSelectedCount > 0;
   const canBatchEdit = effectiveSelectedCount > 0;
@@ -244,10 +250,11 @@ const Toolbar: FC = () => {
     }
 
     if (batchLockMode === "lock") {
+      const normalizedLockDepth = clampLockDepth(batchLockDepth, 1, 8);
       payload.lock = {
         enabled: true,
         mode: batchLockScope,
-        depth: batchLockScope === "level" ? Math.max(1, Math.floor(batchLockDepth)) : undefined,
+        depth: batchLockScope === "level" ? normalizedLockDepth : undefined,
       };
     } else if (batchLockMode === "unlock") {
       payload.lock = { enabled: false };
@@ -369,7 +376,13 @@ const Toolbar: FC = () => {
             </button>
 
             <button
-              onClick={() => setShowShortcuts(true)}
+              onMouseEnter={preloadKeyboardShortcutsPanel}
+              onFocus={preloadKeyboardShortcutsPanel}
+              onTouchStart={preloadKeyboardShortcutsPanel}
+              onClick={() => {
+                preloadKeyboardShortcutsPanel();
+                setShowShortcuts(true);
+              }}
               className="flex items-center justify-center w-7 h-7 text-text-muted rounded-md hover:bg-white hover:text-text hover:shadow-sm active:scale-[0.95] transition-all duration-150 cursor-pointer"
               title="快捷键帮助"
             >
@@ -381,7 +394,13 @@ const Toolbar: FC = () => {
             </button>
 
             <button
-              onClick={() => setShowSettings(true)}
+              onMouseEnter={preloadSettingsPanel}
+              onFocus={preloadSettingsPanel}
+              onTouchStart={preloadSettingsPanel}
+              onClick={() => {
+                preloadSettingsPanel();
+                setShowSettings(true);
+              }}
               className="flex items-center justify-center w-7 h-7 text-text-muted rounded-md hover:bg-white hover:text-text hover:shadow-sm active:scale-[0.95] transition-all duration-150 cursor-pointer"
               title="设置"
             >
@@ -450,13 +469,16 @@ const Toolbar: FC = () => {
               清除聚焦
             </button>
             <button
+              onMouseEnter={preloadImageExporter}
+              onFocus={preloadImageExporter}
+              onTouchStart={preloadImageExporter}
               onClick={handleExportImage}
               disabled={isExportingImage}
               className="flex shrink-0 items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-text-muted rounded-lg hover:bg-surface hover:text-text active:scale-[0.97] transition-all duration-150 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
               title="导出图片"
             >
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" /><circle cx="8.5" cy="8.5" r="1.5" /><path d="M21 15l-5-5L5 21" /></svg>
-              {isExportingImage ? "..." : "图片"}
+              {isExportingImage ? "导出中" : "图片"}
             </button>
             <button
               onClick={handleImportFile}
@@ -479,10 +501,18 @@ const Toolbar: FC = () => {
       </div>
 
       {/* 快捷键面板 */}
-      <KeyboardShortcutsPanel isOpen={showShortcuts} onClose={() => setShowShortcuts(false)} />
+      {showShortcuts && (
+        <Suspense fallback={null}>
+          <KeyboardShortcutsPanel isOpen={showShortcuts} onClose={() => setShowShortcuts(false)} />
+        </Suspense>
+      )}
 
       {/* 设置面板 */}
-      <SettingsPanel isOpen={showSettings} onClose={() => setShowSettings(false)} />
+      {showSettings && (
+        <Suspense fallback={null}>
+          <SettingsPanel isOpen={showSettings} onClose={() => setShowSettings(false)} />
+        </Suspense>
+      )}
 
       {/* 文本转图谱弹窗 */}
       {showTextToGraphModal && (
@@ -646,7 +676,11 @@ const Toolbar: FC = () => {
                     min={1}
                     max={8}
                     value={batchLockDepth}
-                    onChange={(e) => setBatchLockDepth(Number(e.target.value))}
+                    onChange={(e) => {
+                      const nextDepth = Number(e.target.value);
+                      if (!Number.isFinite(nextDepth)) return;
+                      setBatchLockDepth(clampLockDepth(nextDepth, 1, 8));
+                    }}
                     disabled={batchLockMode !== "lock" || batchLockScope !== "level"}
                     className="w-20 px-2 py-1.5 text-xs rounded-md border border-border bg-white disabled:opacity-50 disabled:cursor-not-allowed"
                   />
