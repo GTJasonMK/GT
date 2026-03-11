@@ -4,6 +4,8 @@ import tailwindcss from "@tailwindcss/vite";
 import path from "path";
 
 const host = process.env.TAURI_DEV_HOST;
+const devPort = Number(process.env.VITE_PORT || process.env.PORT) || 1420;
+const hmrPort = Number(process.env.VITE_HMR_PORT) || devPort + 1;
 
 function resolveManualChunk(id: string): string | undefined {
   if (!id.includes("node_modules")) return undefined;
@@ -44,14 +46,14 @@ export default defineConfig(async () => ({
   // Tauri 开发服务器配置
   clearScreen: false,
   server: {
-    port: 1420,
+    port: devPort,
     strictPort: true,
     host: host || false,
     hmr: host
       ? {
           protocol: "ws",
           host,
-          port: 1421,
+          port: hmrPort,
         }
       : undefined,
     watch: {

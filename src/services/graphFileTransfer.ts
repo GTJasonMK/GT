@@ -54,7 +54,7 @@ export interface ImportGraphResult {
   warnings: string[];
 }
 
-function parseImportedGraph(text: string): ImportGraphResult | null {
+export function parseGraphFileText(text: string): ImportGraphResult | null {
   const graph = deserializeGraphData(text);
   if (graph) return { graph, source: "graph", warnings: [] };
 
@@ -82,11 +82,11 @@ export async function importGraphFromFile(): Promise<ImportGraphResult | null> {
     });
     if (!filePath) return null;
     const text = await readTextFile(filePath);
-    return parseImportedGraph(text);
+    return parseGraphFileText(text);
   }
 
   const file = await pickLocalFile(".json,.drawnix");
   if (!file) return null;
   const text = await file.text();
-  return parseImportedGraph(text);
+  return parseGraphFileText(text);
 }

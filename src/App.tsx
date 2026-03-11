@@ -5,6 +5,13 @@ import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts";
 import { useGraphPersistence } from "./hooks/useGraphPersistence";
 import { useGraphAutoSave } from "./hooks/useGraphAutoSave";
 import { useSettingsStore, PANEL_WIDTH_LIMITS } from "./store/settingsStore";
+import { useGraphStore } from "./store/graphStore";
+import { toast } from "./store/toastStore";
+import { parseGraphFileText } from "./services/graphFileTransfer";
+import { useUiStore } from "./store/uiStore";
+import ToastViewport from "./components/ui/ToastViewport";
+import DialogHost from "./components/ui/DialogHost";
+import CommandPalette from "./components/ui/CommandPalette";
 
 const GraphCanvas = lazy(() => import("./components/GraphCanvas"));
 const NodeOutline = lazy(() => import("./components/NodeOutline"));
@@ -18,12 +25,88 @@ const AppContent: FC = () => {
   const leftPanelWidth = useSettingsStore((s) => s.panel.leftPanelWidth);
   const rightPanelWidth = useSettingsStore((s) => s.panel.rightPanelWidth);
   const setPanelSettings = useSettingsStore((s) => s.setPanelSettings);
+  const importData = useGraphStore((s) => s.importData);
+
+  useEffect(() => {
+    const unsubscribe = useGraphStore.subscribe(
+      (s) => s.selectedNodeId,
+      (nodeId) => {
+        if (!nodeId) return;
+        useUiStore.getState().pushRecentNode(nodeId);
+      },
+    );
+    return () => unsubscribe();
+  }, []);
 
   // 拖拽状态
   const [isDraggingLeft, setIsDraggingLeft] = useState(false);
   const [isDraggingRight, setIsDraggingRight] = useState(false);
   const dragStartXRef = useRef(0);
   const dragStartWidthRef = useRef(0);
+  const fileDragDepthRef = useRef(0);
+  const [isFileDragOver, setIsFileDragOver] = useState(false);
+
+  const isFileDragEvent = (e: React.DragEvent) => {
+    return Array.from(e.dataTransfer.types).includes("Files");
+  };
+
+  const handleFileDragEnter = useCallback((e: React.DragEvent) => {
+    if (!isFileDragEvent(e)) return;
+    e.preventDefault();
+    fileDragDepthRef.current += 1;
+    setIsFileDragOver(true);
+  }, []);
+
+  const handleFileDragOver = useCallback((e: React.DragEvent) => {
+    if (!isFileDragEvent(e)) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "copy";
+  }, []);
+
+  const handleFileDragLeave = useCallback((e: React.DragEvent) => {
+    if (fileDragDepthRef.current === 0) return;
+    e.preventDefault();
+    fileDragDepthRef.current = Math.max(0, fileDragDepthRef.current - 1);
+    if (fileDragDepthRef.current === 0) {
+      setIsFileDragOver(false);
+    }
+  }, []);
+
+  const handleFileDrop = useCallback(
+    async (e: React.DragEvent) => {
+      if (!isFileDragEvent(e)) return;
+      e.preventDefault();
+
+      fileDragDepthRef.current = 0;
+      setIsFileDragOver(false);
+
+      const file = e.dataTransfer.files?.[0] ?? null;
+      if (!file) return;
+
+      try {
+        const text = await file.text();
+        const result = parseGraphFileText(text);
+        if (!result) {
+          toast.error("导入失败：不支持的文件或格式错误");
+          return;
+        }
+
+        importData(result.graph);
+        if (result.warnings.length > 0) {
+          console.warn("[导入警告]", result.warnings);
+          toast.warning(
+            `导入完成：${result.graph.nodes.length} 节点，${result.graph.edges.length} 连线（${result.warnings.length} 条警告，详见控制台）`,
+          );
+        } else {
+          toast.success(`导入完成：${result.graph.nodes.length} 节点，${result.graph.edges.length} 连线`);
+        }
+      } catch (error) {
+        console.error("拖拽导入失败:", error);
+        toast.error("导入失败：无法读取文件内容");
+      }
+    },
+    [importData],
+  );
 
   // 左侧面板拖拽开始
   const handleLeftDragStart = useCallback(
@@ -93,7 +176,13 @@ const AppContent: FC = () => {
   }, [setPanelSettings]);
 
   return (
-    <div className="h-screen w-screen flex flex-col bg-canvas">
+    <div
+      className="h-screen w-screen flex flex-col bg-canvas"
+      onDragEnter={handleFileDragEnter}
+      onDragOver={handleFileDragOver}
+      onDragLeave={handleFileDragLeave}
+      onDrop={handleFileDrop}
+    >
       {/* 顶部工具栏 */}
       <Toolbar />
 
@@ -162,6 +251,21 @@ const AppContent: FC = () => {
       {/* 拖拽时的全局覆盖层，防止鼠标进入 iframe 等元素导致拖拽中断 */}
       {(isDraggingLeft || isDraggingRight) && (
         <div className="fixed inset-0 z-50 cursor-col-resize" />
+      )}
+
+      {/* 全局 UI 层：Toast / 对话框 */}
+      <ToastViewport />
+      <DialogHost />
+      <CommandPalette />
+
+      {/* 拖拽文件导入覆盖层 */}
+      {isFileDragOver && (
+        <div className="fixed inset-0 z-[200] bg-black/35 flex items-center justify-center pointer-events-none">
+          <div className="bg-white border border-border rounded-xl shadow-xl px-6 py-4 text-center">
+            <div className="text-sm font-semibold text-text">松开导入图谱</div>
+            <div className="text-xs text-text-muted mt-1">支持 .json / .drawnix</div>
+          </div>
+        </div>
       )}
     </div>
   );

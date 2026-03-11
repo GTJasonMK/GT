@@ -1,6 +1,9 @@
 # 构建产物与缓存
 /dist/
 /node_modules/
+/.venv/
+/.tmp/
+/src-tauri/tauri.conf.dev.*.json
 tsconfig.tsbuildinfo
 *.tsbuildinfo
 src-tauri/target/

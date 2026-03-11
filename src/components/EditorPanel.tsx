@@ -10,6 +10,7 @@ import type { Node } from "@xyflow/react";
 import type { KnowledgeNodeData } from "@/types";
 import { useFocusNode } from "@/hooks/useFocusNode";
 import { clampLockDepth } from "@/lib/graphDataUtils";
+import { toast } from "@/store/toastStore";
 
 type GraphNode = Node<KnowledgeNodeData, "knowledgeNode">;
 type EditorTab = "features" | "content";
@@ -228,7 +229,7 @@ const EditorPanel: FC = () => {
       maxAttempts: layoutSettings.maxAttempts,
     });
     if (!result.ok) {
-      alert("无法整理：未找到可用布局（可能是节点不存在或图数据异常）。");
+      toast.warning("无法整理：未找到可用布局（可能是节点不存在或图数据异常）。");
       return;
     }
 
@@ -247,7 +248,7 @@ const EditorPanel: FC = () => {
       maxAttempts: layoutSettings.maxAttempts,
     });
     if (!result.ok) {
-      alert("无法整理：未找到可用布局（可能是节点不存在或图数据异常）。");
+      toast.warning("无法整理：未找到可用布局（可能是节点不存在或图数据异常）。");
       return;
     }
 

@@ -1,4 +1,4 @@
-import { Suspense, lazy, useCallback, useState, type FC } from "react";
+import { Suspense, lazy, useCallback, useEffect, useState, type FC } from "react";
 import { useStore } from "zustand";
 import { useGraphStore, useTemporalStore } from "@/store/graphStore";
 import { useSettingsStore } from "@/store/settingsStore";
@@ -9,6 +9,8 @@ import { parseTextToGraph } from "@/services/textToGraph";
 import { CANVAS_ELEMENT_ID } from "@/constants/dom";
 import { EDGE_COLORS, EDGE_COLOR_OPTIONS, NODE_COLORS, type EdgeColor, type LockMode, type NodeColor } from "@/types";
 import { clampLockDepth } from "@/lib/graphDataUtils";
+import { toast } from "@/store/toastStore";
+import { useUiStore } from "@/store/uiStore";
 import SearchBar from "./SearchBar";
 
 const preloadKeyboardShortcutsPanel = () => import("./KeyboardShortcutsPanel");
@@ -30,6 +32,7 @@ const Toolbar: FC = () => {
   );
   const exportData = useGraphStore((s) => s.exportData);
   const exportSelectedNodesData = useGraphStore((s) => s.exportSelectedNodesData);
+  const duplicateSelectedNodes = useGraphStore((s) => s.duplicateSelectedNodes);
   const pathFocusNodeIds = useGraphStore((s) => s.pathFocusNodeIds);
   const applyBatchEditToSelectedNodes = useGraphStore((s) => s.applyBatchEditToSelectedNodes);
   const focusShortestPathBetweenSelectedNodes = useGraphStore((s) => s.focusShortestPathBetweenSelectedNodes);
@@ -46,11 +49,31 @@ const Toolbar: FC = () => {
   const canUndo = pastStates.length > 0;
   const canRedo = futureStates.length > 0;
 
-  // 快捷键面板
-  const [showShortcuts, setShowShortcuts] = useState(false);
+  const showShortcuts = useUiStore((s) => s.shortcutsOpen);
+  const setShortcutsOpen = useUiStore((s) => s.setShortcutsOpen);
 
-  // 设置面板
-  const [showSettings, setShowSettings] = useState(false);
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      const isInput = Boolean(
+        target
+        && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable),
+      );
+      if (isInput) return;
+
+      if (e.key === "?" || (e.key === "/" && e.shiftKey)) {
+        e.preventDefault();
+        preloadKeyboardShortcutsPanel();
+        setShortcutsOpen(!useUiStore.getState().shortcutsOpen);
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [setShortcutsOpen]);
+
+  const showSettings = useUiStore((s) => s.settingsOpen);
+  const setSettingsOpen = useUiStore((s) => s.setSettingsOpen);
   const [showTextToGraphModal, setShowTextToGraphModal] = useState(false);
   const [textToGraphTitle, setTextToGraphTitle] = useState("");
   const [textToGraphInput, setTextToGraphInput] = useState("");
@@ -76,7 +99,7 @@ const Toolbar: FC = () => {
       await exportGraphAsJsonFile(exportData());
     } catch (error) {
       console.error("导出失败:", error);
-      alert("导出失败，请重试");
+      toast.error("导出失败，请重试");
     }
   }, [exportData]);
 
@@ -84,36 +107,46 @@ const Toolbar: FC = () => {
     try {
       const selectedGraph = exportSelectedNodesData();
       if (!selectedGraph) {
-        alert("请先选中一个或多个节点，再执行导出");
+        toast.warning("请先选中一个或多个节点，再执行导出");
         return;
       }
       await exportGraphAsJsonFile(selectedGraph, `graph_selected_nodes_${Date.now()}.json`);
     } catch (error) {
       console.error("导出选中节点失败:", error);
-      alert("导出选中节点失败，请重试");
+      toast.error("导出选中节点失败，请重试");
     }
   }, [exportSelectedNodesData]);
+
+  const handleDuplicateSelectedNodes = useCallback(() => {
+    const result = duplicateSelectedNodes();
+    if (!result.ok) {
+      toast.warning(result.message);
+      return;
+    }
+    toast.success(result.message);
+  }, [duplicateSelectedNodes]);
 
   // 从文件导入（Graph JSON / Drawnix）
   const handleImportFile = useCallback(async () => {
     try {
       const result = await importGraphFromFile();
       if (!result) {
-        alert("导入失败：不支持的文件或格式错误");
+        toast.error("导入失败：不支持的文件或格式错误");
         return;
       }
       importData(result.graph);
 
       if (result.warnings.length > 0) {
         console.warn("[导入警告]", result.warnings);
-        alert(
-          `导入完成：${result.graph.nodes.length} 节点，${result.graph.edges.length} 连线。\n` +
-            `其中 ${result.warnings.length} 条内容未完全转换，已输出到控制台。`,
+        toast.warning(
+          `导入完成：${result.graph.nodes.length} 节点，${result.graph.edges.length} 连线（${result.warnings.length} 条警告，详见控制台）`,
         );
+      } else {
+        toast.success(`导入完成：${result.graph.nodes.length} 节点，${result.graph.edges.length} 连线`);
       }
     } catch (error) {
       console.error("导入失败:", error);
-      alert("导入失败：不支持的文件或格式错误");
+      toast.error("导入失败：不支持的文件或格式错误");
     }
   }, [importData]);
 
@@ -124,7 +157,7 @@ const Toolbar: FC = () => {
   const handleExportImage = useCallback(async () => {
     const reactFlowElement = document.getElementById(CANVAS_ELEMENT_ID) as HTMLElement | null;
     if (!reactFlowElement) {
-      alert("无法找到画布元素");
+      toast.error("无法找到画布元素");
       return;
     }
 
@@ -138,9 +171,10 @@ const Toolbar: FC = () => {
         pixelRatio: 2,
       });
       await exportPngDataUrl(dataUrl);
+      toast.success("图片已导出");
     } catch (error) {
       console.error("导出图片失败:", error);
-      alert("导出图片失败，请重试");
+      toast.error("导出图片失败，请重试");
     } finally {
       setIsExportingImage(false);
     }
@@ -149,13 +183,13 @@ const Toolbar: FC = () => {
   const handleGenerateGraphFromText = useCallback(() => {
     const input = textToGraphInput.trim();
     if (!input) {
-      alert("请输入知识点内容后再生成");
+      toast.warning("请输入知识点内容后再生成");
       return;
     }
 
     const graph = parseTextToGraph(input, { sourceLabel: textToGraphTitle.trim() || "输入知识主题" });
     if (!graph) {
-      alert("无法解析输入内容，请补充更多知识点");
+      toast.error("无法解析输入内容，请补充更多知识点");
       return;
     }
 
@@ -163,6 +197,7 @@ const Toolbar: FC = () => {
     setShowTextToGraphModal(false);
     setTextToGraphInput("");
     setTextToGraphTitle("");
+    toast.success(`已生成：${graph.nodes.length} 节点，${graph.edges.length} 连线`);
   }, [importData, textToGraphInput, textToGraphTitle]);
 
   // 保存状态文字
@@ -194,10 +229,10 @@ const Toolbar: FC = () => {
   const handleFocusPath = useCallback(() => {
     const result = focusShortestPathBetweenSelectedNodes();
     if (!result.ok) {
-      alert(result.message);
+      toast.warning(result.message);
       return;
     }
-    alert(result.message);
+    toast.success(result.message);
   }, [focusShortestPathBetweenSelectedNodes]);
 
   const handleClearPathFocus = useCallback(() => {
@@ -239,7 +274,7 @@ const Toolbar: FC = () => {
     if (batchTagsMode !== "none") {
       const tags = parseBatchTags();
       if (tags.length === 0) {
-        alert("请输入至少一个标签（支持逗号或换行分隔）。");
+        toast.warning("请输入至少一个标签（支持逗号或换行分隔）。");
         return;
       }
       if (batchTagsMode === "append") {
@@ -261,8 +296,11 @@ const Toolbar: FC = () => {
     }
 
     const result = applyBatchEditToSelectedNodes(payload);
-    alert(result.message);
-    if (!result.ok) return;
+    if (!result.ok) {
+      toast.warning(result.message);
+      return;
+    }
+    toast.success(result.message);
 
     setShowBatchEditModal(false);
     resetBatchEditDraft();
@@ -379,10 +417,10 @@ const Toolbar: FC = () => {
               onMouseEnter={preloadKeyboardShortcutsPanel}
               onFocus={preloadKeyboardShortcutsPanel}
               onTouchStart={preloadKeyboardShortcutsPanel}
-              onClick={() => {
-                preloadKeyboardShortcutsPanel();
-                setShowShortcuts(true);
-              }}
+	              onClick={() => {
+	                preloadKeyboardShortcutsPanel();
+	                setShortcutsOpen(true);
+	              }}
               className="flex items-center justify-center w-7 h-7 text-text-muted rounded-md hover:bg-white hover:text-text hover:shadow-sm active:scale-[0.95] transition-all duration-150 cursor-pointer"
               title="快捷键帮助"
             >
@@ -397,10 +435,10 @@ const Toolbar: FC = () => {
               onMouseEnter={preloadSettingsPanel}
               onFocus={preloadSettingsPanel}
               onTouchStart={preloadSettingsPanel}
-              onClick={() => {
-                preloadSettingsPanel();
-                setShowSettings(true);
-              }}
+	              onClick={() => {
+	                preloadSettingsPanel();
+	                setSettingsOpen(true);
+	              }}
               className="flex items-center justify-center w-7 h-7 text-text-muted rounded-md hover:bg-white hover:text-text hover:shadow-sm active:scale-[0.95] transition-all duration-150 cursor-pointer"
               title="设置"
             >
@@ -440,6 +478,20 @@ const Toolbar: FC = () => {
             >
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="6" cy="12" r="2" /><circle cx="18" cy="6" r="2" /><circle cx="18" cy="18" r="2" /><line x1="8" y1="12" x2="16" y2="7" /><line x1="8" y1="12" x2="16" y2="17" /></svg>
               {canExportSelectedNodes ? `导出选中(${effectiveSelectedCount})` : "导出选中"}
+            </button>
+            <button
+              onClick={handleDuplicateSelectedNodes}
+              disabled={!canExportSelectedNodes}
+              className="flex shrink-0 items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-text-muted rounded-lg hover:bg-surface hover:text-text active:scale-[0.97] transition-all duration-150 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+              title={canExportSelectedNodes
+                ? `复制当前选中节点集合（已选 ${effectiveSelectedCount} 个，包含内部连线）`
+                : "请先选中节点（支持框选多个）"}
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="9" y="9" width="13" height="13" rx="2" />
+                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+              </svg>
+              {canExportSelectedNodes ? `复制选中(${effectiveSelectedCount})` : "复制选中"}
             </button>
             <button
               onClick={() => setShowBatchEditModal(true)}
@@ -503,14 +555,14 @@ const Toolbar: FC = () => {
       {/* 快捷键面板 */}
       {showShortcuts && (
         <Suspense fallback={null}>
-          <KeyboardShortcutsPanel isOpen={showShortcuts} onClose={() => setShowShortcuts(false)} />
+          <KeyboardShortcutsPanel isOpen={showShortcuts} onClose={() => setShortcutsOpen(false)} />
         </Suspense>
       )}
 
       {/* 设置面板 */}
       {showSettings && (
         <Suspense fallback={null}>
-          <SettingsPanel isOpen={showSettings} onClose={() => setShowSettings(false)} />
+          <SettingsPanel isOpen={showSettings} onClose={() => setSettingsOpen(false)} />
         </Suspense>
       )}
 

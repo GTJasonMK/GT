@@ -27,9 +27,11 @@ const shortcuts: ShortcutItem[] = [
   { keys: ["Ctrl", "Z"], description: "撤销操作" },
   { keys: ["Ctrl", "Y"], description: "重做操作" },
   { keys: ["Ctrl", "Shift", "Z"], description: "重做操作" },
-  { keys: ["Ctrl", "D"], description: "复制选中节点" },
+  { keys: ["Ctrl", "D"], description: "复制选中节点（含内部连线）" },
   { keys: ["Ctrl", "F"], description: "聚焦搜索框" },
+  { keys: ["Ctrl", "K"], description: "打开/关闭命令面板" },
   { keys: ["F"], description: "聚焦选中节点 / 全览" },
+  { keys: ["?"], description: "打开/关闭快捷键帮助" },
   { keys: ["Escape"], description: "取消选中 / 清空搜索" },
   { keys: ["Delete"], description: "删除选中节点" },
   { keys: ["Backspace"], description: "删除选中节点" },
@@ -62,6 +64,11 @@ const guideSections: GuideSection[] = [
         feature: "保存与恢复",
         usage: "支持手动保存（Ctrl+S）与自动保存（节点/连线变化后约 1 秒）；启动时自动加载历史数据。",
         tip: "Web 端保存到 localStorage，桌面端保存到系统应用数据目录。",
+      },
+      {
+        feature: "命令面板（Ctrl+K）",
+        usage: "快速执行常用命令、搜索并跳转节点。支持前缀：> 只搜命令，@ 只搜节点，#tag 只按标签搜索。",
+        tip: "示例：> 导出、@ 需求、#todo。",
       },
     ],
   },
@@ -185,13 +192,11 @@ const KeyboardShortcutsPanel: FC<KeyboardShortcutsPanelProps> = ({ isOpen, onClo
   }, []);
 
   useEffect(() => {
+    if (!isOpen) return;
+
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && isOpen) {
+      if (e.key === "Escape") {
         onClose();
-      }
-      // 按 ? 键打开快捷键面板
-      if (e.key === "?" && !isOpen) {
-        e.preventDefault();
       }
     };
 

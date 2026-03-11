@@ -1,4 +1,5 @@
 import type { ContextMenuItem } from "../ContextMenu";
+import { openPrompt } from "@/store/dialogStore";
 
 export interface GraphContextMenuState {
   x: number;
@@ -69,10 +70,9 @@ export function buildGraphContextMenuItems(args: BuildGraphContextMenuItemsArgs)
       {
         label: "编辑标签",
         onClick: () => {
-          const newLabel = prompt("输入边的标签:", "");
-          if (newLabel !== null) {
-            updateEdgeLabel(edgeId, newLabel);
-          }
+          openPrompt({ title: "编辑连线标签", placeholder: "例如：相关 / 前置 / 扩展 / 包含" }).then((newLabel) => {
+            if (newLabel !== null) updateEdgeLabel(edgeId, newLabel);
+          });
         },
       },
       { label: "", onClick: () => {}, divider: true },

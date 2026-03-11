@@ -22,6 +22,7 @@ import { prunePathFocusState, recomputeSearchResults, resolveNextSelectedNodeId,
 
 // 生成唯一 ID
 const generateId = () => `node_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+const generateEdgeId = () => `edge_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 
 export type GraphNode = Node<KnowledgeNodeData, "knowledgeNode">;
 export type GraphEdge = Edge;
@@ -59,6 +60,7 @@ export interface GraphStore {
   updateNodeData: (nodeId: string, data: Partial<KnowledgeNodeData>) => void;
   deleteNode: (nodeId: string) => void;
   duplicateNode: (nodeId: string) => string | null;
+  duplicateSelectedNodes: () => { ok: boolean; nodeCount: number; edgeCount: number; message: string };
   setSelectedNodeId: (nodeId: string | null) => void;
   setNodeEdgeColor: (nodeId: string, edgeColor: EdgeColor) => void;
   propagateEdgeColorFromNode: (nodeId: string) => void;
@@ -268,6 +270,85 @@ export const useGraphStore = create<GraphStore>()(
             };
           });
           return id;
+        },
+
+        duplicateSelectedNodes: () => {
+          const { nodes, edges, selectedNodeId, searchQuery } = get();
+          const selectedIds = resolveSelectedNodeIds(nodes, selectedNodeId);
+          if (selectedIds.length === 0) {
+            return { ok: false, nodeCount: 0, edgeCount: 0, message: "请先选中一个或多个节点。" };
+          }
+
+          const selectedIdSet = new Set(selectedIds);
+          const selectedNodes = nodes.filter((node) => selectedIdSet.has(node.id));
+          if (selectedNodes.length === 0) {
+            return { ok: false, nodeCount: 0, edgeCount: 0, message: "选中节点不存在或已被删除。" };
+          }
+
+          const selectedEdges = edges.filter((edge) => selectedIdSet.has(edge.source) && selectedIdSet.has(edge.target));
+          const idMap = new Map<string, string>();
+          const now = Date.now();
+          const offset = { x: 40, y: 40 };
+
+          const duplicatedNodes: GraphNode[] = selectedNodes.map((node) => {
+            const nextId = generateId();
+            idMap.set(node.id, nextId);
+            return {
+              ...node,
+              id: nextId,
+              position: {
+                x: node.position.x + offset.x,
+                y: node.position.y + offset.y,
+              },
+              selected: true,
+              data: {
+                ...node.data,
+                label: `${node.data.label || "未命名"} (副本)`,
+                createdAt: now,
+                updatedAt: now,
+              } satisfies KnowledgeNodeData,
+            };
+          });
+
+          const duplicatedEdges: GraphEdge[] = [];
+          selectedEdges.forEach((edge) => {
+            const nextSource = idMap.get(edge.source);
+            const nextTarget = idMap.get(edge.target);
+            if (!nextSource || !nextTarget) return;
+
+            duplicatedEdges.push({
+              ...edge,
+              id: generateEdgeId(),
+              source: nextSource,
+              target: nextTarget,
+              selected: false,
+            });
+          });
+
+          set((state) => {
+            const clearedNodes = state.nodes.map((node) => {
+              if (!node.selected) return node;
+              return { ...node, selected: false };
+            });
+
+            const nextNodes = [...clearedNodes, ...duplicatedNodes];
+            const nextEdges = [...state.edges, ...duplicatedEdges];
+            const nextSelectedNodeId = duplicatedNodes[0]?.id ?? null;
+
+            return {
+              nodes: nextNodes,
+              edges: nextEdges,
+              selectedNodeId: nextSelectedNodeId,
+              searchResults: recomputeSearchResults(nextNodes, searchQuery),
+            };
+          });
+
+          return {
+            ok: true,
+            nodeCount: duplicatedNodes.length,
+            edgeCount: duplicatedEdges.length,
+            message: `已复制 ${duplicatedNodes.length} 个节点，${duplicatedEdges.length} 条内部连线。`,
+          };
         },
 
         setSelectedNodeId: (nodeId) => {

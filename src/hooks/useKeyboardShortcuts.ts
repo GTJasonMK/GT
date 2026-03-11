@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { useGraphStore } from "@/store/graphStore";
 import { useTemporalStore } from "@/store/graphStore";
 import { SEARCH_INPUT_ID } from "@/constants/dom";
+import { toast } from "@/store/toastStore";
 
 /**
  * 全局键盘快捷键钩子
@@ -18,8 +19,7 @@ export const useKeyboardShortcuts = () => {
   const setSelectedNodeId = useGraphStore((s) => s.setSelectedNodeId);
   const setSearchQuery = useGraphStore((s) => s.setSearchQuery);
   const searchQuery = useGraphStore((s) => s.searchQuery);
-  const selectedNodeId = useGraphStore((s) => s.selectedNodeId);
-  const duplicateNode = useGraphStore((s) => s.duplicateNode);
+  const duplicateSelectedNodes = useGraphStore((s) => s.duplicateSelectedNodes);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -53,8 +53,9 @@ export const useKeyboardShortcuts = () => {
       // Ctrl+D: 复制选中节点
       if ((e.ctrlKey || e.metaKey) && e.key === "d" && !isInput) {
         e.preventDefault();
-        if (selectedNodeId) {
-          duplicateNode(selectedNodeId);
+        const result = duplicateSelectedNodes();
+        if (!result.ok) {
+          toast.warning(result.message);
         }
         return;
       }
@@ -83,5 +84,5 @@ export const useKeyboardShortcuts = () => {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [saveData, setSelectedNodeId, setSearchQuery, searchQuery, selectedNodeId, duplicateNode]);
+  }, [saveData, setSelectedNodeId, setSearchQuery, searchQuery, duplicateSelectedNodes]);
 };

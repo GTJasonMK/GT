@@ -1,41 +1,43 @@
 # Repository Guidelines
 
-本仓库为基于 Vite + React 的知识图谱编辑器，配套 Tauri 2 桌面端（Rust）。
-
 ## 项目结构与模块组织
 
-- `src/`：前端 UI（TypeScript + React）。主要目录：`components/`、`hooks/`、`store/`（Zustand）、`types/`。
-- `src-tauri/`：Tauri 后端与打包配置（`Cargo.toml`、`tauri.conf.json`）。
-- `scripts/`：Windows 本地开发/构建脚本（`dev.ps1`/`dev.cmd`、`build.ps1`/`build.cmd`）。
-- `dist/`、`src-tauri/target/`：构建产物（不要手工修改）。
+- `src/`：前端 UI（Vite + React + TypeScript）。主要目录：`src/components/`、`src/hooks/`、`src/store/`（Zustand）、`src/services/`、`src/types/`。
+- `src-tauri/`：Tauri 2 桌面端（Rust）与配置（`src-tauri/tauri.conf.json`）。持久化逻辑见 `src-tauri/src/lib.rs`。
+- `docs/`：项目文档（例如 `docs/graph-json-format.md`）。
+- 构建产物：`dist/`、`src-tauri/target/`（不要手工修改或提交）。
 
-## 本地开发、构建与常用命令
+## 构建、测试与开发命令
 
-- `npm install`：安装前端依赖。
-- `npm run dev`：仅启动前端（默认端口 `1420`）。
-- `npm run dev:app`（或 `npm run tauri dev` / `npm run start`）：启动桌面端（需要 Rust 工具链）。
-- `npm run build`：`tsc -b` + `vite build`（产物在 `dist/`）。
+- `npm install`：安装依赖。
+- `npm run dev`：仅启动前端（Vite dev server）。
+- `npm run dev:app`（或 `npm run tauri -- dev` / `npm run start`）：启动桌面端（需要 Rust 工具链）。
+- `npm run build`：类型检查（`tsc -b`）+ 前端构建（`vite build`）。
+- `npm run build:app`：构建 Tauri 桌面端产物。
 - `npm run preview`：本地预览生产构建。
-- Windows 便捷入口：`.\scripts\dev.ps1`、`.\scripts\build.ps1`。
+- `install.bat`：Windows 一键安装依赖（创建 `.venv` + 安装 uv + 安装 npm 依赖）。
+- `start.bat`：Windows 一键启动（自动找可用端口；`start.bat web` / `start.bat app`）。
+- `build.bat`：Windows 一键打包（`build.bat web` / `build.bat app`，可加 `clean` 清理产物）。
 
 ## 代码风格与命名约定
 
-- TypeScript 采用 `strict`（见 `tsconfig.json`），保持 `tsc` 无告警（未使用变量/参数等）。
-- 组件文件用 `PascalCase`（如 `GraphCanvas.tsx`）；Hooks 用 `useX`（如 `useTheme.ts`）。
-- 优先使用 `@/` 路径别名导入（见 `tsconfig.json`、`vite.config.ts`）。
-- 跟随现有风格：2 空格缩进、双引号、分号；代码注释使用中文。
+- TypeScript 开启 `strict`，并启用 `noUnusedLocals`/`noUnusedParameters`；保证 `npm run build` 无告警。
+- 风格：2 空格缩进、双引号（`"`）、分号（`;`）。
+- 命名：组件 `PascalCase.tsx`（如 `GraphCanvas.tsx`），Hooks 使用 `useX.ts`，状态集中在 `src/store/`。
+- 导入：优先使用 `@/` 别名（如 `import { useGraphStore } from "@/store/graphStore";`）。
+- 代码注释使用中文，说明意图与约束。
 
-## 测试与验证
+## 测试指南
 
-- 当前未配置 JS 单测框架；合入前至少运行 `npm run build`，并做手动冒烟（画布渲染、增删/编辑节点、保存/加载）。
-- 修改 Rust 端：在 `src-tauri/` 下执行 `cargo test`（如有），并确认 `npm run tauri dev` 可正常启动。
+- 当前未配置 JS 单元测试：请至少运行 `npm run build`，并做手动冒烟（画布渲染、增删/编辑节点、导入/导出、保存/加载）。
+- 修改 Rust 端：在 `src-tauri/` 下运行 `cargo test`（如适用），并确认 `npm run tauri -- dev` 可正常启动。
 
-## 架构提示（可选）
+## 数据与配置提示
 
-- UI 状态集中在 `src/store/`；图编辑基于 `@xyflow/react`。
-- 数据持久化在 `src-tauri/src/lib.rs`：`save_graph_data`/`load_graph_data` 读写 `graph_data.json`（系统应用数据目录）。
+- Web 端持久化使用浏览器 `localStorage`；桌面端持久化写入系统应用数据目录下的 `GraphAndTable/graph_data.json`（见 `src-tauri/src/lib.rs`）。
+- 导入/导出 JSON 字段约定见 `docs/graph-json-format.md`。
 
-## 提交与 PR 规范
+## 提交与 Pull Request 规范
 
-- 本工作区未包含 Git 历史；默认建议 Conventional Commits：`feat:` / `fix:` / `refactor:` / `docs:`。
-- PR 需包含：变更摘要、验证步骤（Web/Tauri）、UI 截图；涉及 `src-tauri/` 时注明测试的 OS/版本。
+- Git 历史以简短中文动词短语为主（如“优化… / 添加… / 清理…”）；建议保持单一主题，必要时补充影响范围。
+- PR 至少包含：变更说明（what/why）、本地验证步骤（Web/Tauri）、UI 改动截图；涉及 `src-tauri/` 时注明 OS 与 Rust 版本。
