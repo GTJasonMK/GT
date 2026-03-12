@@ -18,6 +18,7 @@ interface CreatePersistenceSliceArgs {
 export function createPersistenceSlice(args: CreatePersistenceSliceArgs): Pick<
   GraphStore,
   | "markSaveStatusIdle"
+  | "setSaveStatus"
   | "saveData"
   | "loadData"
   | "exportData"
@@ -32,6 +33,13 @@ export function createPersistenceSlice(args: CreatePersistenceSliceArgs): Pick<
       set((state) => {
         if (state.saveStatus === "idle") return state;
         return { saveStatus: "idle" };
+      });
+    },
+
+    setSaveStatus: (status) => {
+      set((state) => {
+        if (state.saveStatus === status) return state;
+        return { saveStatus: status };
       });
     },
 

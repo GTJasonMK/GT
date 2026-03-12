@@ -5,9 +5,12 @@ import { useSettingsStore } from "@/store/settingsStore";
 import { useUiStore } from "@/store/uiStore";
 import { toast } from "@/store/toastStore";
 import { useFocusNode } from "@/hooks/useFocusNode";
-import { exportGraphAsJsonFile, importGraphFromFile } from "@/services/graphFileTransfer";
+import { importGraphFromFile } from "@/services/graphFileTransfer";
 import { exportPngDataUrl } from "@/services/imageExport";
 import { CANVAS_ELEMENT_ID, SEARCH_INPUT_ID } from "@/constants/dom";
+import { openConfirm } from "@/store/dialogStore";
+import { graphWorkspaceRuntime } from "@/agent/graphWorkspaceRuntime";
+import type { GraphImportEnvelope } from "@/agent/types.ts";
 
 interface CommandItem {
   id: string;
@@ -206,6 +209,105 @@ export default function CommandPalette() {
     requestAnimationFrame(() => inputRef.current?.focus());
   }, [isOpen]);
 
+  const applyImportedEnvelope = useCallback(async (envelope: GraphImportEnvelope) => {
+    let result = await graphWorkspaceRuntime.actions.applyImportedWorkspace({
+      actor: "human",
+      envelope,
+      replaceExisting: false,
+    });
+
+    if (!result.ok && result.error?.code === "PRECONDITION_FAILED") {
+      const confirmed = await openConfirm({
+        title: "覆盖当前图谱？",
+        message: "导入会替换当前工作区内容，是否继续？",
+        confirmText: "继续导入",
+        cancelText: "取消",
+        danger: true,
+      });
+      if (!confirmed) {
+        toast.info("已取消导入");
+        return false;
+      }
+      result = await graphWorkspaceRuntime.actions.applyImportedWorkspace({
+        actor: "human",
+        envelope,
+        replaceExisting: true,
+      });
+    }
+
+    if (!result.ok) {
+      toast.error(result.error?.message || "导入失败");
+      return false;
+    }
+
+    if (envelope.warnings.length > 0) {
+      console.warn("[导入警告]", envelope.warnings);
+      toast.warning(
+        `导入完成：${envelope.graph.nodes.length} 节点，${envelope.graph.edges.length} 连线（${envelope.warnings.length} 条警告，详见控制台）`,
+      );
+    } else {
+      toast.success(`导入完成：${envelope.graph.nodes.length} 节点，${envelope.graph.edges.length} 连线`);
+    }
+
+    return true;
+  }, []);
+
+  const runHumanManagedExport = useCallback(
+    async (scope: "all" | "selected", filename?: string) => {
+      const request = await graphWorkspaceRuntime.actions.requestWorkspaceJsonExport({
+        actor: "human",
+        scope,
+        filename,
+        reason: "command-palette",
+      });
+
+      if (request.ok) {
+        toast.success(scope === "selected" ? "选中子图已导出" : "图谱已导出");
+        return;
+      }
+
+      if (request.error?.code === "PRECONDITION_FAILED") {
+        toast.warning(request.error.message);
+        return;
+      }
+
+      if (request.error?.code !== "APPROVAL_REQUIRED" || !request.approval) {
+        toast.error(request.error?.message || "导出失败，请重试");
+        return;
+      }
+
+      const confirmed = await openConfirm({
+        title: scope === "selected" ? "导出选中子图？" : "导出当前图谱？",
+        message: request.approval.riskSummary,
+        confirmText: "确认导出",
+        cancelText: "取消",
+        danger: true,
+      });
+
+      if (!confirmed) {
+        await graphWorkspaceRuntime.actions.rejectWorkspaceExport({
+          approvalId: request.approval.id,
+          actor: "human",
+          reason: "human_cancelled_from_command_palette",
+        });
+        toast.info("已取消导出");
+        return;
+      }
+
+      const approved = await graphWorkspaceRuntime.actions.approveWorkspaceExport({
+        approvalId: request.approval.id,
+        actor: "human",
+      });
+      if (!approved.ok) {
+        toast.error(approved.error?.message || "导出失败，请重试");
+        return;
+      }
+
+      toast.success(scope === "selected" ? "选中子图已导出" : "图谱已导出");
+    },
+    [],
+  );
+
   const commands = useMemo<CommandItem[]>(() => {
     return [
       {
@@ -220,10 +322,14 @@ export default function CommandPalette() {
             <line x1="5" y1="12" x2="19" y2="12" />
           </svg>
         ),
-        run: () => {
-          const { addNode, setSelectedNodeId } = useGraphStore.getState();
-          const id = addNode({ x: 200 + Math.random() * 200, y: 200 + Math.random() * 200 });
-          setSelectedNodeId(id);
+        run: async () => {
+          const result = await graphWorkspaceRuntime.actions.createNode({
+            actor: "human",
+            position: { x: 200 + Math.random() * 200, y: 200 + Math.random() * 200 },
+          });
+          if (!result.ok) {
+            toast.error(result.error?.message || "创建节点失败。");
+          }
         },
       },
       {
@@ -240,8 +346,15 @@ export default function CommandPalette() {
           </svg>
         ),
         run: async () => {
-          await useGraphStore.getState().saveData();
-          toast.info("已触发保存。");
+          const result = await graphWorkspaceRuntime.actions.saveWorkspace({
+            actor: "human",
+            reason: "command-palette",
+          });
+          if (!result.ok) {
+            toast.error(result.error?.message || "保存失败，请重试。");
+            return;
+          }
+          toast.info("已触发结构化保存。");
         },
       },
       {
@@ -260,16 +373,7 @@ export default function CommandPalette() {
         run: async () => {
           const result = await importGraphFromFile();
           if (!result) return;
-          useGraphStore.getState().importData(result.graph);
-
-          if (result.warnings.length > 0) {
-            console.warn("[导入警告]", result.warnings);
-            toast.warning(
-              `导入完成：${result.graph.nodes.length} 节点，${result.graph.edges.length} 连线（${result.warnings.length} 条警告，详见控制台）`,
-            );
-          } else {
-            toast.success(`导入完成：${result.graph.nodes.length} 节点，${result.graph.edges.length} 连线`);
-          }
+          await applyImportedEnvelope(result);
         },
       },
       {
@@ -286,8 +390,7 @@ export default function CommandPalette() {
           </svg>
         ),
         run: async () => {
-          const data = useGraphStore.getState().exportData();
-          await exportGraphAsJsonFile(data);
+          await runHumanManagedExport("all");
         },
       },
       {
@@ -298,12 +401,7 @@ export default function CommandPalette() {
         keywords: ["export", "导出", "选中"],
         disabled: !canExportSelected,
         run: async () => {
-          const selected = useGraphStore.getState().exportSelectedNodesData();
-          if (!selected) {
-            toast.warning("请先选中一个或多个节点。");
-            return;
-          }
-          await exportGraphAsJsonFile(selected, `graph_selected_nodes_${Date.now()}.json`);
+          await runHumanManagedExport("selected", `graph_selected_nodes_${Date.now()}.json`);
         },
       },
       {
@@ -379,13 +477,15 @@ export default function CommandPalette() {
         shortcut: "Ctrl+D",
         keywords: ["duplicate", "复制", "copy"],
         disabled: !canDuplicateSelected,
-        run: () => {
-          const result = useGraphStore.getState().duplicateSelectedNodes();
+        run: async () => {
+          const result = await graphWorkspaceRuntime.actions.duplicateNodes({
+            actor: "human",
+          });
           if (!result.ok) {
-            toast.warning(result.message);
+            toast.warning(result.error?.message || "复制选中节点失败。");
             return;
           }
-          toast.success(result.message);
+          toast.success("已复制选中节点。");
         },
       },
       {
@@ -480,6 +580,7 @@ export default function CommandPalette() {
       },
     ];
   }, [
+    applyImportedEnvelope,
     canDuplicateSelected,
     canExportSelected,
     canFocusPath,
@@ -488,6 +589,7 @@ export default function CommandPalette() {
     hasPathFocus,
     nodes,
     reactFlow,
+    runHumanManagedExport,
     selectedNodeId,
     setSettingsOpen,
     setShortcutsOpen,

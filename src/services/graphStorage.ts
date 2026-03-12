@@ -1,6 +1,7 @@
 import type { GraphData } from "@/types";
 import { isTauri } from "@/platform/runtime";
 import { invokeTauri } from "@/platform/tauri";
+import type { GraphPersistenceTarget } from "@/agent/types.ts";
 
 const LOCAL_STORAGE_KEY = "graph_data";
 
@@ -44,5 +45,20 @@ export async function loadGraphData(): Promise<GraphData | null> {
 
   if (!jsonStr || jsonStr === "{}") return null;
   return deserializeGraphData(jsonStr);
+}
+
+export async function getGraphStorageInfo(): Promise<GraphPersistenceTarget> {
+  if (isTauri()) {
+    return invokeTauri<GraphPersistenceTarget>("get_graph_data_info");
+  }
+
+  const jsonStr = localStorage.getItem(LOCAL_STORAGE_KEY);
+  return {
+    backend: "local_storage",
+    location: LOCAL_STORAGE_KEY,
+    exists: Boolean(jsonStr && jsonStr !== "{}"),
+    byteSize: jsonStr?.length ?? 0,
+    updatedAt: null,
+  };
 }
 

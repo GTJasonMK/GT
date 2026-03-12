@@ -18,6 +18,7 @@ import { useStoreWithEqualityFn } from "zustand/traditional";
 
 import KnowledgeNode from "./KnowledgeNode";
 import CenterEdge from "./CenterEdge";
+import { graphWorkspaceRuntime } from "@/agent/graphWorkspaceRuntime";
 import { useGraphStore } from "@/store/graphStore";
 import { useSettingsStore } from "@/store/settingsStore";
 import { useTheme } from "@/hooks/useTheme";
@@ -26,6 +27,7 @@ import { useLockedNodeDrag } from "@/hooks/useLockedNodeDrag";
 import type { EdgeColor, KnowledgeNodeData } from "@/types";
 import { NODE_COLORS, EDGE_COLORS } from "@/types";
 import { NODE_CENTER_OFFSET } from "@/constants/graphLayout";
+import { toast } from "@/store/toastStore";
 import { buildGraphContextMenuItems, type GraphContextMenuState } from "./graphCanvas/contextMenuItems";
 import { CANVAS_ELEMENT_ID } from "@/constants/dom";
 
@@ -72,15 +74,10 @@ const GraphCanvas: FC = () => {
   const edges = useGraphStore((s) => s.edges);
   const onNodesChange = useGraphStore((s) => s.onNodesChange);
   const onEdgesChange = useGraphStore((s) => s.onEdgesChange);
-  const onConnect = useGraphStore((s) => s.onConnect);
-  const addNode = useGraphStore((s) => s.addNode);
-  const deleteNode = useGraphStore((s) => s.deleteNode);
-  const duplicateNode = useGraphStore((s) => s.duplicateNode);
   const setSelectedNodeId = useGraphStore((s) => s.setSelectedNodeId);
   const beginDragHistoryBatch = useGraphStore((s) => s.beginDragHistoryBatch);
   const endDragHistoryBatch = useGraphStore((s) => s.endDragHistoryBatch);
   const getConnectedNodeIds = useGraphStore((s) => s.getConnectedNodeIds);
-  const updateEdgeLabel = useGraphStore((s) => s.updateEdgeLabel);
   const selectedNodeId = useGraphStore((s) => s.selectedNodeId);
   const pathFocusEdgeIds = useGraphStore((s) => s.pathFocusEdgeIds);
   const pathFocusMode = useGraphStore((s) => s.pathFocusMode);
@@ -147,15 +144,28 @@ const GraphCanvas: FC = () => {
   ]);
 
   // 双击画布空白处添加新节点
+  const createNodeAtPosition = useCallback(async (position: { x: number; y: number }) => {
+    const result = await graphWorkspaceRuntime.actions.createNode({
+      actor: "human",
+      position,
+    });
+    if (!result.ok) {
+      toast.error(result.error?.message || "创建节点失败");
+    }
+  }, []);
+
   const handlePaneDoubleClick = useCallback(
     (event: React.MouseEvent) => {
       const position = screenToFlowPosition({
         x: event.clientX,
         y: event.clientY,
       });
-      addNode({ x: position.x - NODE_CENTER_OFFSET.x, y: position.y - NODE_CENTER_OFFSET.y });
+      void createNodeAtPosition({
+        x: position.x - NODE_CENTER_OFFSET.x,
+        y: position.y - NODE_CENTER_OFFSET.y,
+      });
     },
-    [addNode, screenToFlowPosition],
+    [createNodeAtPosition, screenToFlowPosition],
   );
 
   // 点击节点选中
@@ -248,16 +258,76 @@ const GraphCanvas: FC = () => {
   const addNodeFromClientPoint = useCallback(
     (clientX: number, clientY: number) => {
       const position = screenToFlowPosition({ x: clientX, y: clientY });
-      addNode({ x: position.x - NODE_CENTER_OFFSET.x, y: position.y - NODE_CENTER_OFFSET.y });
+      void createNodeAtPosition({
+        x: position.x - NODE_CENTER_OFFSET.x,
+        y: position.y - NODE_CENTER_OFFSET.y,
+      });
     },
-    [addNode, screenToFlowPosition],
+    [createNodeAtPosition, screenToFlowPosition],
   );
+
+  const handleCreateEdge = useCallback(
+    (connection: { source?: string | null; target?: string | null }) => {
+      if (!connection.source || !connection.target) return;
+      void graphWorkspaceRuntime.actions.createEdge({
+        actor: "human",
+        source: connection.source,
+        target: connection.target,
+      }).then((result) => {
+        if (!result.ok) {
+          toast.error(result.error?.message || "创建连线失败");
+        }
+      });
+    },
+    [],
+  );
+
+  const duplicateNodeById = useCallback((nodeId: string) => {
+    void graphWorkspaceRuntime.actions.duplicateNodes({
+      actor: "human",
+      nodeIds: [nodeId],
+    }).then((result) => {
+      if (!result.ok) {
+        toast.warning(result.error?.message || "复制节点失败");
+      }
+    });
+  }, []);
+
+  const deleteNodeById = useCallback((nodeId: string) => {
+    void graphWorkspaceRuntime.actions.deleteNodes({
+      actor: "human",
+      nodeIds: [nodeId],
+    }).then((result) => {
+      if (!result.ok) {
+        toast.warning(result.error?.message || "删除节点失败");
+      }
+    });
+  }, []);
+
+  const updateEdgeLabelById = useCallback((edgeId: string, label: string) => {
+    void graphWorkspaceRuntime.actions.updateEdgeLabel({
+      actor: "human",
+      edgeId,
+      label,
+    }).then((result) => {
+      if (!result.ok) {
+        toast.warning(result.error?.message || "更新连线标签失败");
+      }
+    });
+  }, []);
 
   const deleteEdge = useCallback(
     (edgeId: string) => {
-      onEdgesChange([{ type: "remove", id: edgeId }]);
+      void graphWorkspaceRuntime.actions.deleteEdges({
+        actor: "human",
+        edgeIds: [edgeId],
+      }).then((result) => {
+        if (!result.ok) {
+          toast.warning(result.error?.message || "删除连线失败");
+        }
+      });
     },
-    [onEdgesChange],
+    [],
   );
 
   const contextMenuItems = useMemo(() => {
@@ -266,18 +336,18 @@ const GraphCanvas: FC = () => {
       menu: contextMenu,
       addNodeFromClientPoint,
       setSelectedNodeId,
-      duplicateNode,
-      deleteNode,
-      updateEdgeLabel,
+      duplicateNode: duplicateNodeById,
+      deleteNode: deleteNodeById,
+      updateEdgeLabel: updateEdgeLabelById,
       deleteEdge,
     });
   }, [
     contextMenu,
     addNodeFromClientPoint,
     setSelectedNodeId,
-    duplicateNode,
-    deleteNode,
-    updateEdgeLabel,
+    duplicateNodeById,
+    deleteNodeById,
+    updateEdgeLabelById,
     deleteEdge,
   ]);
 
@@ -295,7 +365,7 @@ const GraphCanvas: FC = () => {
         edges={edgesWithColors}
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
-        onConnect={onConnect}
+        onConnect={handleCreateEdge}
         onNodeClick={handleNodeClick}
         onNodeDragStart={handleNodeDragStart}
         onNodeDrag={handleNodeDrag}
@@ -322,7 +392,8 @@ const GraphCanvas: FC = () => {
         snapToGrid
         snapGrid={[16, 16]}
         defaultEdgeOptions={{ type: "centerEdge" }}
-        deleteKeyCode={["Backspace", "Delete"]}
+        // 删除统一走快捷键 hook -> bridge action，避免 ReactFlow 直接改本地 store。
+        deleteKeyCode={null}
         proOptions={{ hideAttribution: true }}
         className="bg-canvas"
       >

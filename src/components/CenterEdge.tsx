@@ -1,6 +1,7 @@
 import { memo, useState, useRef, useEffect, useCallback, type FC } from "react";
 import { type EdgeProps, EdgeLabelRenderer } from "@xyflow/react";
-import { useGraphStore } from "@/store/graphStore";
+import { graphWorkspaceRuntime } from "@/agent/graphWorkspaceRuntime";
+import { toast } from "@/store/toastStore";
 
 /**
  * 自定义中心连接边
@@ -19,7 +20,6 @@ const CenterEdge: FC<EdgeProps> = memo(({
   label,
   data,
 }) => {
-  const updateEdgeLabel = useGraphStore((s) => s.updateEdgeLabel);
   const [isEditing, setIsEditing] = useState(false);
   const [editValue, setEditValue] = useState(String(label || ""));
   const inputRef = useRef<HTMLInputElement>(null);
@@ -41,9 +41,18 @@ const CenterEdge: FC<EdgeProps> = memo(({
 
   // 保存编辑
   const saveEdit = useCallback(() => {
-    updateEdgeLabel(id, editValue);
-    setIsEditing(false);
-  }, [id, editValue, updateEdgeLabel]);
+    void graphWorkspaceRuntime.actions.updateEdgeLabel({
+      actor: "human",
+      edgeId: id,
+      label: editValue,
+    }).then((result) => {
+      if (!result.ok) {
+        toast.warning(result.error?.message || "更新连线标签失败");
+        return;
+      }
+      setIsEditing(false);
+    });
+  }, [id, editValue]);
 
   // 处理按键
   const handleKeyDown = useCallback(

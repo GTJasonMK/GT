@@ -73,6 +73,7 @@ export interface GraphStore {
   focusShortestPathBetweenSelectedNodes: () => { ok: boolean; message: string };
   clearPathFocus: () => void;
   markSaveStatusIdle: () => void;
+  setSaveStatus: (status: GraphStore["saveStatus"]) => void;
 
   // 搜索
   setSearchQuery: (query: string) => void;

@@ -8,6 +8,7 @@ import type { EdgeColor, LockMode, NodeColor } from "@/types";
 import { EDGE_COLOR_OPTIONS, EDGE_COLORS, NODE_COLORS } from "@/types";
 import type { Node } from "@xyflow/react";
 import type { KnowledgeNodeData } from "@/types";
+import { graphWorkspaceRuntime } from "@/agent/graphWorkspaceRuntime";
 import { useFocusNode } from "@/hooks/useFocusNode";
 import { clampLockDepth } from "@/lib/graphDataUtils";
 import { toast } from "@/store/toastStore";
@@ -107,7 +108,6 @@ const EditorPanel: FC = () => {
   const selectedNodeId = useGraphStore((s) => s.selectedNodeId);
   const nodes = useStoreWithEqualityFn(useGraphStore, (s) => s.nodes, areNodesEqualByIdAndData);
   const updateNodeData = useGraphStore((s) => s.updateNodeData);
-  const deleteNode = useGraphStore((s) => s.deleteNode);
   const autoLayoutFromNode = useGraphStore((s) => s.autoLayoutFromNode);
   const layoutSettings = useSettingsStore((s) => s.layout);
   const setLayoutSettings = useSettingsStore((s) => s.setLayoutSettings);
@@ -123,6 +123,30 @@ const EditorPanel: FC = () => {
   const selectedNode = nodes.find((n) => n.id === selectedNodeId);
   const nodeData = selectedNode?.data;
   const hasSelectedNode = Boolean(selectedNodeId && nodeData);
+
+  const runManagedNodeUpdate = async (patch: {
+    position?: { x: number; y: number };
+    data?: Record<string, unknown>;
+    label?: string;
+    content?: string;
+    tags?: string[];
+    color?: NodeColor;
+    edgeColor?: EdgeColor;
+    locked?: boolean;
+    lockMode?: LockMode;
+    lockDepth?: number;
+  }) => {
+    if (!selectedNodeId) return false;
+    const result = await graphWorkspaceRuntime.actions.updateNode({
+      nodeId: selectedNodeId,
+      patch,
+    });
+    if (!result.ok) {
+      toast.warning(result.error?.message || "更新节点失败");
+      return false;
+    }
+    return true;
+  };
 
   const editor = useEditor({
     extensions: [StarterKit],
@@ -190,33 +214,40 @@ const EditorPanel: FC = () => {
     const input = e.currentTarget;
     const tag = input.value.trim();
     if (tag && !nodeData.tags.includes(tag)) {
-      updateNodeData(selectedNodeId, { tags: [...nodeData.tags, tag] });
+      void runManagedNodeUpdate({ tags: [...nodeData.tags, tag] });
     }
     input.value = "";
   };
 
   const handleTagRemove = (tag: string) => {
     if (!selectedNodeId || !nodeData) return;
-    updateNodeData(selectedNodeId, {
+    void runManagedNodeUpdate({
       tags: nodeData.tags.filter((t) => t !== tag),
     });
   };
 
   const handleColorChange = (color: NodeColor) => {
     if (!selectedNodeId) return;
-    updateNodeData(selectedNodeId, { color });
+    void runManagedNodeUpdate({ color });
   };
 
   const handleEdgeColorIndexChange = (index: number) => {
     if (!selectedNodeId) return;
     const edgeColor = edgeColorOptions[index];
     if (!edgeColor) return;
-    updateNodeData(selectedNodeId, { edgeColor });
+    void runManagedNodeUpdate({ edgeColor });
   };
 
   const handleDelete = () => {
     if (!selectedNodeId) return;
-    deleteNode(selectedNodeId);
+    void graphWorkspaceRuntime.actions.deleteNodes({
+      actor: "human",
+      nodeIds: [selectedNodeId],
+    }).then((result) => {
+      if (!result.ok) {
+        toast.warning(result.error?.message || "删除节点失败");
+      }
+    });
   };
 
   const handleAutoLayout = () => {
@@ -278,7 +309,7 @@ const EditorPanel: FC = () => {
   const handleApplyLock = () => {
     if (!selectedNodeId) return;
     const normalizedDepth = clampEditorLockDepth(lockDepthDraft);
-    updateNodeData(selectedNodeId, {
+    void runManagedNodeUpdate({
       locked: true,
       lockMode: lockModeDraft,
       lockDepth: lockModeDraft === "level" ? normalizedDepth : undefined,
@@ -287,7 +318,7 @@ const EditorPanel: FC = () => {
 
   const handleUnlock = () => {
     if (!selectedNodeId) return;
-    updateNodeData(selectedNodeId, {
+    void runManagedNodeUpdate({
       locked: false,
       lockMode: undefined,
       lockDepth: undefined,

@@ -4,6 +4,7 @@ import Toolbar from "./components/Toolbar";
 import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts";
 import { useGraphPersistence } from "./hooks/useGraphPersistence";
 import { useGraphAutoSave } from "./hooks/useGraphAutoSave";
+import { useBridgeWorkspaceSync } from "./hooks/useBridgeWorkspaceSync";
 import { useSettingsStore, PANEL_WIDTH_LIMITS } from "./store/settingsStore";
 import { useGraphStore } from "./store/graphStore";
 import { toast } from "./store/toastStore";
@@ -12,6 +13,9 @@ import { useUiStore } from "./store/uiStore";
 import ToastViewport from "./components/ui/ToastViewport";
 import DialogHost from "./components/ui/DialogHost";
 import CommandPalette from "./components/ui/CommandPalette";
+import AgentOperatorPanel from "./components/AgentOperatorPanel";
+import { graphWorkspaceRuntime } from "./agent/graphWorkspaceRuntime";
+import { openConfirm } from "./store/dialogStore";
 
 const GraphCanvas = lazy(() => import("./components/GraphCanvas"));
 const NodeOutline = lazy(() => import("./components/NodeOutline"));
@@ -21,11 +25,11 @@ const AppContent: FC = () => {
   useKeyboardShortcuts();
   useGraphPersistence();
   useGraphAutoSave();
+  useBridgeWorkspaceSync();
 
   const leftPanelWidth = useSettingsStore((s) => s.panel.leftPanelWidth);
   const rightPanelWidth = useSettingsStore((s) => s.panel.rightPanelWidth);
   const setPanelSettings = useSettingsStore((s) => s.setPanelSettings);
-  const importData = useGraphStore((s) => s.importData);
 
   useEffect(() => {
     const unsubscribe = useGraphStore.subscribe(
@@ -91,7 +95,34 @@ const AppContent: FC = () => {
           return;
         }
 
-        importData(result.graph);
+        const runImport = async (replaceExisting: boolean) =>
+          graphWorkspaceRuntime.actions.applyImportedWorkspace({
+            actor: "human",
+            envelope: result,
+            replaceExisting,
+          });
+
+        let importResult = await runImport(false);
+        if (!importResult.ok && importResult.error?.code === "PRECONDITION_FAILED") {
+          const confirmed = await openConfirm({
+            title: "覆盖当前图谱？",
+            message: "拖拽导入会替换当前工作区内容，是否继续？",
+            confirmText: "继续导入",
+            cancelText: "取消",
+            danger: true,
+          });
+          if (!confirmed) {
+            toast.info("已取消拖拽导入");
+            return;
+          }
+          importResult = await runImport(true);
+        }
+
+        if (!importResult.ok) {
+          toast.error(importResult.error?.message || "导入失败");
+          return;
+        }
+
         if (result.warnings.length > 0) {
           console.warn("[导入警告]", result.warnings);
           toast.warning(
@@ -105,7 +136,7 @@ const AppContent: FC = () => {
         toast.error("导入失败：无法读取文件内容");
       }
     },
-    [importData],
+    [],
   );
 
   // 左侧面板拖拽开始
@@ -257,6 +288,7 @@ const AppContent: FC = () => {
       <ToastViewport />
       <DialogHost />
       <CommandPalette />
+      <AgentOperatorPanel />
 
       {/* 拖拽文件导入覆盖层 */}
       {isFileDragOver && (

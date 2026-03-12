@@ -1,8 +1,9 @@
-import { useEffect } from "react";
+import { useCallback, useEffect } from "react";
 import { useGraphStore } from "@/store/graphStore";
 import { useTemporalStore } from "@/store/graphStore";
 import { SEARCH_INPUT_ID } from "@/constants/dom";
 import { toast } from "@/store/toastStore";
+import { graphWorkspaceRuntime } from "@/agent/graphWorkspaceRuntime";
 
 /**
  * 全局键盘快捷键钩子
@@ -12,14 +13,56 @@ import { toast } from "@/store/toastStore";
  * - Ctrl+D: 复制选中节点
  * - Ctrl+F: 聚焦搜索框
  * - Escape: 取消选中 / 清空搜索
- * - Delete/Backspace: 删除选中节点（由ReactFlow处理）
+ * - Delete/Backspace: 删除选中节点或连线（统一走 bridge action）
  */
 export const useKeyboardShortcuts = () => {
-  const saveData = useGraphStore((s) => s.saveData);
   const setSelectedNodeId = useGraphStore((s) => s.setSelectedNodeId);
   const setSearchQuery = useGraphStore((s) => s.setSearchQuery);
   const searchQuery = useGraphStore((s) => s.searchQuery);
-  const duplicateSelectedNodes = useGraphStore((s) => s.duplicateSelectedNodes);
+
+  const deleteSelectedGraphItems = useCallback(async () => {
+    const { nodes, edges, selectedNodeId } = useGraphStore.getState();
+    const selectedNodeIds = nodes
+      .filter((node) => Boolean(node.selected))
+      .map((node) => node.id);
+
+    if (selectedNodeIds.length === 0 && selectedNodeId && nodes.some((node) => node.id === selectedNodeId)) {
+      selectedNodeIds.push(selectedNodeId);
+    }
+
+    const selectedNodeIdSet = new Set(selectedNodeIds);
+    const selectedEdgeIds = edges
+      .filter((edge) =>
+        Boolean(edge.selected)
+        && !selectedNodeIdSet.has(edge.source)
+        && !selectedNodeIdSet.has(edge.target))
+      .map((edge) => edge.id);
+
+    if (selectedNodeIds.length === 0 && selectedEdgeIds.length === 0) {
+      return;
+    }
+
+    if (selectedNodeIds.length > 0) {
+      const result = await graphWorkspaceRuntime.actions.deleteNodes({
+        actor: "human",
+        nodeIds: selectedNodeIds,
+      });
+      if (!result.ok) {
+        toast.warning(result.error?.message || "删除节点失败");
+        return;
+      }
+    }
+
+    if (selectedEdgeIds.length > 0) {
+      const result = await graphWorkspaceRuntime.actions.deleteEdges({
+        actor: "human",
+        edgeIds: selectedEdgeIds,
+      });
+      if (!result.ok) {
+        toast.warning(result.error?.message || "删除连线失败");
+      }
+    }
+  }, []);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -30,7 +73,14 @@ export const useKeyboardShortcuts = () => {
       // Ctrl+S: 保存
       if ((e.ctrlKey || e.metaKey) && e.key === "s") {
         e.preventDefault();
-        saveData();
+        void graphWorkspaceRuntime.actions.saveWorkspace({
+          actor: "human",
+          reason: "keyboard-shortcut",
+        }).then((result) => {
+          if (!result.ok) {
+            toast.error(result.error?.message || "保存失败，请重试");
+          }
+        });
         return;
       }
 
@@ -53,10 +103,20 @@ export const useKeyboardShortcuts = () => {
       // Ctrl+D: 复制选中节点
       if ((e.ctrlKey || e.metaKey) && e.key === "d" && !isInput) {
         e.preventDefault();
-        const result = duplicateSelectedNodes();
-        if (!result.ok) {
-          toast.warning(result.message);
-        }
+        void graphWorkspaceRuntime.actions.duplicateNodes({
+          actor: "human",
+        }).then((result) => {
+          if (!result.ok) {
+            toast.warning(result.error?.message || "复制选中节点失败");
+          }
+        });
+        return;
+      }
+
+      // Delete/Backspace: 删除选中节点或连线，统一走 bridge action
+      if ((e.key === "Delete" || e.key === "Backspace") && !isInput) {
+        e.preventDefault();
+        void deleteSelectedGraphItems();
         return;
       }
 
@@ -84,5 +144,5 @@ export const useKeyboardShortcuts = () => {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [saveData, setSelectedNodeId, setSearchQuery, searchQuery, duplicateSelectedNodes]);
+  }, [deleteSelectedGraphItems, setSelectedNodeId, setSearchQuery, searchQuery]);
 };

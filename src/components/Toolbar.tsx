@@ -3,7 +3,7 @@ import { useStore } from "zustand";
 import { useGraphStore, useTemporalStore } from "@/store/graphStore";
 import { useSettingsStore } from "@/store/settingsStore";
 import { useTheme } from "@/hooks/useTheme";
-import { exportGraphAsJsonFile, importGraphFromFile } from "@/services/graphFileTransfer";
+import { importGraphFromFile } from "@/services/graphFileTransfer";
 import { exportPngDataUrl } from "@/services/imageExport";
 import { parseTextToGraph } from "@/services/textToGraph";
 import { CANVAS_ELEMENT_ID } from "@/constants/dom";
@@ -11,6 +11,9 @@ import { EDGE_COLORS, EDGE_COLOR_OPTIONS, NODE_COLORS, type EdgeColor, type Lock
 import { clampLockDepth } from "@/lib/graphDataUtils";
 import { toast } from "@/store/toastStore";
 import { useUiStore } from "@/store/uiStore";
+import { openConfirm } from "@/store/dialogStore";
+import { graphWorkspaceRuntime } from "@/agent/graphWorkspaceRuntime";
+import type { GraphImportEnvelope } from "@/agent/types.ts";
 import SearchBar from "./SearchBar";
 
 const preloadKeyboardShortcutsPanel = () => import("./KeyboardShortcutsPanel");
@@ -25,20 +28,14 @@ const SettingsPanel = lazy(preloadSettingsPanel);
  * 提供添加节点、保存、导入导出等操作
  */
 const Toolbar: FC = () => {
-  const addNode = useGraphStore((s) => s.addNode);
   const selectedNodeId = useGraphStore((s) => s.selectedNodeId);
   const selectedNodeCount = useGraphStore((s) =>
     s.nodes.reduce((count, node) => count + (node.selected ? 1 : 0), 0)
   );
-  const exportData = useGraphStore((s) => s.exportData);
-  const exportSelectedNodesData = useGraphStore((s) => s.exportSelectedNodesData);
-  const duplicateSelectedNodes = useGraphStore((s) => s.duplicateSelectedNodes);
   const pathFocusNodeIds = useGraphStore((s) => s.pathFocusNodeIds);
   const applyBatchEditToSelectedNodes = useGraphStore((s) => s.applyBatchEditToSelectedNodes);
   const focusShortestPathBetweenSelectedNodes = useGraphStore((s) => s.focusShortestPathBetweenSelectedNodes);
   const clearPathFocus = useGraphStore((s) => s.clearPathFocus);
-  const importData = useGraphStore((s) => s.importData);
-  const saveData = useGraphStore((s) => s.saveData);
   const saveStatus = useGraphStore((s) => s.saveStatus);
   const globalEdgeFlowAnimation = useSettingsStore((s) => s.layout.globalEdgeFlowAnimation);
   const setLayoutSettings = useSettingsStore((s) => s.setLayoutSettings);
@@ -90,41 +87,137 @@ const Toolbar: FC = () => {
 
   // 添加新节点到画布中央
   const handleAddNode = useCallback(() => {
-    addNode({ x: 200 + Math.random() * 200, y: 200 + Math.random() * 200 });
-  }, [addNode]);
+    void graphWorkspaceRuntime.actions.createNode({
+      actor: "human",
+      position: { x: 200 + Math.random() * 200, y: 200 + Math.random() * 200 },
+    }).then((result) => {
+      if (!result.ok) {
+        toast.error(result.error?.message || "创建节点失败");
+      }
+    });
+  }, []);
 
-  // 导出为 JSON 文件
-  const handleExportFile = useCallback(async () => {
-    try {
-      await exportGraphAsJsonFile(exportData());
-    } catch (error) {
-      console.error("导出失败:", error);
-      toast.error("导出失败，请重试");
-    }
-  }, [exportData]);
+  const runHumanManagedExport = useCallback(
+    async (scope: "all" | "selected", filename?: string) => {
+      const request = await graphWorkspaceRuntime.actions.requestWorkspaceJsonExport({
+        actor: "human",
+        scope,
+        filename,
+        reason: "toolbar",
+      });
 
-  const handleExportSelectedSubgraph = useCallback(async () => {
-    try {
-      const selectedGraph = exportSelectedNodesData();
-      if (!selectedGraph) {
-        toast.warning("请先选中一个或多个节点，再执行导出");
+      if (request.ok) {
+        toast.success(scope === "selected" ? "选中子图已导出" : "图谱已导出");
         return;
       }
-      await exportGraphAsJsonFile(selectedGraph, `graph_selected_nodes_${Date.now()}.json`);
-    } catch (error) {
-      console.error("导出选中节点失败:", error);
-      toast.error("导出选中节点失败，请重试");
-    }
-  }, [exportSelectedNodesData]);
+
+      if (request.error?.code === "PRECONDITION_FAILED") {
+        toast.warning(request.error.message);
+        return;
+      }
+
+      if (request.error?.code !== "APPROVAL_REQUIRED" || !request.approval) {
+        toast.error(request.error?.message || "导出失败，请重试");
+        return;
+      }
+
+      const confirmed = await openConfirm({
+        title: scope === "selected" ? "导出选中子图？" : "导出当前图谱？",
+        message: request.approval.riskSummary,
+        confirmText: "确认导出",
+        cancelText: "取消",
+        danger: true,
+      });
+
+      if (!confirmed) {
+        await graphWorkspaceRuntime.actions.rejectWorkspaceExport({
+          approvalId: request.approval.id,
+          actor: "human",
+          reason: "human_cancelled_from_toolbar",
+        });
+        toast.info("已取消导出");
+        return;
+      }
+
+      const approved = await graphWorkspaceRuntime.actions.approveWorkspaceExport({
+        approvalId: request.approval.id,
+        actor: "human",
+      });
+      if (!approved.ok) {
+        toast.error(approved.error?.message || "导出失败，请重试");
+        return;
+      }
+
+      toast.success(scope === "selected" ? "选中子图已导出" : "图谱已导出");
+    },
+    [],
+  );
+
+  const handleExportFile = useCallback(async () => {
+    await runHumanManagedExport("all");
+  }, [runHumanManagedExport]);
+
+  const handleExportSelectedSubgraph = useCallback(async () => {
+    await runHumanManagedExport("selected", `graph_selected_nodes_${Date.now()}.json`);
+  }, [runHumanManagedExport]);
 
   const handleDuplicateSelectedNodes = useCallback(() => {
-    const result = duplicateSelectedNodes();
-    if (!result.ok) {
-      toast.warning(result.message);
-      return;
-    }
-    toast.success(result.message);
-  }, [duplicateSelectedNodes]);
+    void graphWorkspaceRuntime.actions.duplicateNodes({
+      actor: "human",
+    }).then((result) => {
+      if (!result.ok) {
+        toast.warning(result.error?.message || "复制选中节点失败");
+        return;
+      }
+      toast.success("已复制选中节点");
+    });
+  }, []);
+
+  const applyImportedEnvelope = useCallback(
+    async (envelope: GraphImportEnvelope) => {
+      let result = await graphWorkspaceRuntime.actions.applyImportedWorkspace({
+        actor: "human",
+        envelope,
+        replaceExisting: false,
+      });
+
+      if (!result.ok && result.error?.code === "PRECONDITION_FAILED") {
+        const confirmed = await openConfirm({
+          title: "覆盖当前图谱？",
+          message: "导入会替换当前工作区内容，是否继续？",
+          confirmText: "继续导入",
+          cancelText: "取消",
+          danger: true,
+        });
+        if (!confirmed) {
+          toast.info("已取消导入");
+          return false;
+        }
+        result = await graphWorkspaceRuntime.actions.applyImportedWorkspace({
+          actor: "human",
+          envelope,
+          replaceExisting: true,
+        });
+      }
+
+      if (!result.ok) {
+        toast.error(result.error?.message || "导入失败");
+        return false;
+      }
+
+      if (envelope.warnings.length > 0) {
+        console.warn("[导入警告]", envelope.warnings);
+        toast.warning(
+          `导入完成：${envelope.graph.nodes.length} 节点，${envelope.graph.edges.length} 连线（${envelope.warnings.length} 条警告，详见控制台）`,
+        );
+      } else {
+        toast.success(`导入完成：${envelope.graph.nodes.length} 节点，${envelope.graph.edges.length} 连线`);
+      }
+
+      return true;
+    },
+    [],
+  );
 
   // 从文件导入（Graph JSON / Drawnix）
   const handleImportFile = useCallback(async () => {
@@ -134,21 +227,12 @@ const Toolbar: FC = () => {
         toast.error("导入失败：不支持的文件或格式错误");
         return;
       }
-      importData(result.graph);
-
-      if (result.warnings.length > 0) {
-        console.warn("[导入警告]", result.warnings);
-        toast.warning(
-          `导入完成：${result.graph.nodes.length} 节点，${result.graph.edges.length} 连线（${result.warnings.length} 条警告，详见控制台）`,
-        );
-      } else {
-        toast.success(`导入完成：${result.graph.nodes.length} 节点，${result.graph.edges.length} 连线`);
-      }
+      await applyImportedEnvelope(result);
     } catch (error) {
       console.error("导入失败:", error);
       toast.error("导入失败：不支持的文件或格式错误");
     }
-  }, [importData]);
+  }, [applyImportedEnvelope]);
 
   // 导出图片状态
   const [isExportingImage, setIsExportingImage] = useState(false);
@@ -193,12 +277,29 @@ const Toolbar: FC = () => {
       return;
     }
 
-    importData(graph);
-    setShowTextToGraphModal(false);
-    setTextToGraphInput("");
-    setTextToGraphTitle("");
-    toast.success(`已生成：${graph.nodes.length} 节点，${graph.edges.length} 连线`);
-  }, [importData, textToGraphInput, textToGraphTitle]);
+    void applyImportedEnvelope({
+      graph,
+      source: "text_to_graph",
+      warnings: [],
+    }).then((ok) => {
+      if (!ok) return;
+      setShowTextToGraphModal(false);
+      setTextToGraphInput("");
+      setTextToGraphTitle("");
+    });
+  }, [applyImportedEnvelope, textToGraphInput, textToGraphTitle]);
+
+  const handleSaveWorkspace = useCallback(async () => {
+    const result = await graphWorkspaceRuntime.actions.saveWorkspace({
+      actor: "human",
+      reason: "toolbar",
+    });
+    if (!result.ok) {
+      toast.error(result.error?.message || "保存失败，请重试");
+      return;
+    }
+    toast.info("已触发结构化保存");
+  }, []);
 
   // 保存状态文字
   const saveStatusText = saveStatus === "saving" ? "保存中" : saveStatus === "saved" ? "已保存" : "";
@@ -453,7 +554,7 @@ const Toolbar: FC = () => {
         <div className="pt-2 border-t border-border/70">
           <div className="flex items-center gap-1 overflow-x-auto pb-0.5">
             <button
-              onClick={() => saveData()}
+              onClick={() => void handleSaveWorkspace()}
               className="flex shrink-0 items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-text-muted rounded-lg hover:bg-surface hover:text-text active:scale-[0.97] transition-all duration-150 cursor-pointer"
               title="保存"
             >
