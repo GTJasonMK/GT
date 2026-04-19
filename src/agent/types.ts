@@ -20,6 +20,11 @@ export type AgentErrorCode =
 
 export type GraphExportScope = "all" | "selected";
 
+export interface GraphWorkspaceExportFileOptions {
+  filename?: string;
+  outputPath?: string;
+}
+
 export interface AgentError {
   code: AgentErrorCode;
   message: string;

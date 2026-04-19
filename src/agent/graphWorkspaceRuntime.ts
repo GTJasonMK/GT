@@ -2,6 +2,7 @@ import { createGraphWorkspaceRuntime } from "./createGraphWorkspaceRuntime.ts";
 import { createGraphCapabilityClient } from "./graphCapabilityClient.ts";
 import { agentExecutionStoreTracker } from "@/store/agentStore";
 import { useGraphStore } from "@/store/graphStore";
+import { resolveSelectedNodeIds } from "@/store/slices/graphHelpers";
 import { exportGraphAsJsonFile } from "@/services/graphFileTransfer";
 import { getGraphStorageInfo } from "@/services/graphStorage";
 
@@ -9,11 +10,13 @@ export const inProcessGraphWorkspaceRuntime = createGraphWorkspaceRuntime({
   tracker: agentExecutionStoreTracker,
   getWorkspaceReadModel: () => {
     const state = useGraphStore.getState();
-    const selectedNodeCount = state.nodes.reduce((count, node) => count + (node.selected ? 1 : 0), 0) || (state.selectedNodeId ? 1 : 0);
+    const selectedNodeIds = resolveSelectedNodeIds(state.nodes, state.selectedNodeId);
     return {
       allData: state.exportData(),
       selectedData: state.exportSelectedNodesData(),
-      selectedNodeCount,
+      selectedNodeCount: selectedNodeIds.length,
+      selectedNodeId: state.selectedNodeId,
+      selectedNodeIds,
       saveStatus: state.saveStatus,
     };
   },
@@ -21,7 +24,7 @@ export const inProcessGraphWorkspaceRuntime = createGraphWorkspaceRuntime({
   replaceWorkspace: (data) => {
     useGraphStore.getState().importData(data);
   },
-  exportWorkspaceJson: (data, filename) => exportGraphAsJsonFile(data, filename),
+  exportWorkspaceJson: (data, options) => exportGraphAsJsonFile(data, options),
   describePersistenceTarget: () => getGraphStorageInfo(),
 });
 

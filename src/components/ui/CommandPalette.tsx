@@ -5,7 +5,7 @@ import { useSettingsStore } from "@/store/settingsStore";
 import { useUiStore } from "@/store/uiStore";
 import { toast } from "@/store/toastStore";
 import { useFocusNode } from "@/hooks/useFocusNode";
-import { importGraphFromFile } from "@/services/graphFileTransfer";
+import { importGraphFromFile, requestGraphJsonOutputPath } from "@/services/graphFileTransfer";
 import { exportPngDataUrl } from "@/services/imageExport";
 import { CANVAS_ELEMENT_ID, SEARCH_INPUT_ID } from "@/constants/dom";
 import { openConfirm } from "@/store/dialogStore";
@@ -294,9 +294,21 @@ export default function CommandPalette() {
         return;
       }
 
+      const outputPathResult = await requestGraphJsonOutputPath(filename);
+      if (outputPathResult.status === "cancelled") {
+        await graphWorkspaceRuntime.actions.rejectWorkspaceExport({
+          approvalId: request.approval.id,
+          actor: "human",
+          reason: "human_cancelled_save_dialog_from_command_palette",
+        });
+        toast.info("已取消导出");
+        return;
+      }
+
       const approved = await graphWorkspaceRuntime.actions.approveWorkspaceExport({
         approvalId: request.approval.id,
         actor: "human",
+        outputPath: outputPathResult.status === "selected" ? outputPathResult.outputPath : undefined,
       });
       if (!approved.ok) {
         toast.error(approved.error?.message || "导出失败，请重试");
@@ -372,7 +384,11 @@ export default function CommandPalette() {
         ),
         run: async () => {
           const result = await importGraphFromFile();
-          if (!result) return;
+          if (result.status === "cancelled") return;
+          if (result.status === "invalid") {
+            toast.error("导入失败：不支持的文件或格式错误。");
+            return;
+          }
           await applyImportedEnvelope(result);
         },
       },

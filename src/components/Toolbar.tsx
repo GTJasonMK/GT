@@ -3,7 +3,7 @@ import { useStore } from "zustand";
 import { useGraphStore, useTemporalStore } from "@/store/graphStore";
 import { useSettingsStore } from "@/store/settingsStore";
 import { useTheme } from "@/hooks/useTheme";
-import { importGraphFromFile } from "@/services/graphFileTransfer";
+import { importGraphFromFile, requestGraphJsonOutputPath } from "@/services/graphFileTransfer";
 import { exportPngDataUrl } from "@/services/imageExport";
 import { parseTextToGraph } from "@/services/textToGraph";
 import { CANVAS_ELEMENT_ID } from "@/constants/dom";
@@ -139,9 +139,21 @@ const Toolbar: FC = () => {
         return;
       }
 
+      const outputPathResult = await requestGraphJsonOutputPath(filename);
+      if (outputPathResult.status === "cancelled") {
+        await graphWorkspaceRuntime.actions.rejectWorkspaceExport({
+          approvalId: request.approval.id,
+          actor: "human",
+          reason: "human_cancelled_save_dialog_from_toolbar",
+        });
+        toast.info("已取消导出");
+        return;
+      }
+
       const approved = await graphWorkspaceRuntime.actions.approveWorkspaceExport({
         approvalId: request.approval.id,
         actor: "human",
+        outputPath: outputPathResult.status === "selected" ? outputPathResult.outputPath : undefined,
       });
       if (!approved.ok) {
         toast.error(approved.error?.message || "导出失败，请重试");
@@ -223,7 +235,11 @@ const Toolbar: FC = () => {
   const handleImportFile = useCallback(async () => {
     try {
       const result = await importGraphFromFile();
-      if (!result) {
+      if (result.status === "cancelled") {
+        toast.info("已取消导入");
+        return;
+      }
+      if (result.status === "invalid") {
         toast.error("导入失败：不支持的文件或格式错误");
         return;
       }

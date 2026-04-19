@@ -499,12 +499,13 @@ export const GRAPH_WORKSPACE_TOOLS: AgentToolSchema[] = [
     name: "approve_pending_action",
     kind: "approval",
     goal: "批准待处理的高风险动作。",
-    description: "当前用于批准受管 JSON 导出。",
+    description: "当前用于批准受管 JSON 导出；桌面端应传入明确的 outputPath。",
     inputSchema: {
       type: "object",
       properties: {
         approvalId: { type: "string" },
         actor: { type: "string", enum: ["human", "supervisor"] },
+        outputPath: { type: "string" },
       },
       required: ["approvalId"],
       additionalProperties: false,

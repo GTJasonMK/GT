@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, type FC } from "react";
 import { graphWorkspaceRuntime } from "@/agent/graphWorkspaceRuntime";
 import type { GraphPersistenceTarget } from "@/agent/types.ts";
+import { requestGraphJsonOutputPath } from "@/services/graphFileTransfer";
 import { useAgentStore } from "@/store/agentStore";
 import { useGraphStore } from "@/store/graphStore";
 import { toast } from "@/store/toastStore";
@@ -127,12 +128,19 @@ const AgentOperatorPanel: FC = () => {
     }
   };
 
-  const handleApprove = async (approvalId: string) => {
+  const handleApprove = async (approvalId: string, filename?: string) => {
     setBusyApprovalId(approvalId);
     try {
+      const outputPathResult = await requestGraphJsonOutputPath(filename);
+      if (outputPathResult.status === "cancelled") {
+        toast.info("未选择导出路径，审批保持待处理");
+        return;
+      }
+
       const result = await graphWorkspaceRuntime.actions.approveWorkspaceExport({
         approvalId,
         actor: "supervisor",
+        outputPath: outputPathResult.status === "selected" ? outputPathResult.outputPath : undefined,
       });
       if (!result.ok) {
         toast.error(result.error?.message || "审批通过失败");
@@ -334,7 +342,10 @@ const AgentOperatorPanel: FC = () => {
                     <div className="mt-2 flex gap-2">
                       <button
                         type="button"
-                        onClick={() => handleApprove(approval.id)}
+                        onClick={() => handleApprove(
+                          approval.id,
+                          typeof approval.payload?.filename === "string" ? approval.payload.filename : undefined,
+                        )}
                         disabled={isBusy}
                         className="rounded-lg bg-primary px-2.5 py-1.5 font-semibold text-white transition hover:bg-primary-dark disabled:opacity-60"
                       >

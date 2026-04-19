@@ -1,11 +1,10 @@
 import { readFile } from "node:fs/promises";
-import path from "node:path";
-import os from "node:os";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import * as z from "zod/v4";
 import { GRAPH_WORKSPACE_MCP_CONTRACT } from "../../src/agent/contract.ts";
+import { resolveManifestPath } from "./manifestPath.ts";
 import type {
   AgentToolSchema,
   GraphWorkspaceBridgeManifest,
@@ -23,21 +22,6 @@ type JsonSchemaLike = {
 
 const BRIDGE_TIMEOUT_MS = 5000;
 const DEFAULT_CONTRACT = GRAPH_WORKSPACE_MCP_CONTRACT;
-
-function resolveAppDataDir(): string {
-  if (process.platform === "win32") {
-    return process.env.APPDATA ?? path.join(os.homedir(), "AppData", "Roaming");
-  }
-  if (process.platform === "darwin") {
-    return path.join(os.homedir(), "Library", "Application Support");
-  }
-  return process.env.XDG_DATA_HOME ?? path.join(os.homedir(), ".local", "share");
-}
-
-function resolveManifestPath(): string {
-  return process.env.GT_BRIDGE_MANIFEST
-    ?? path.join(resolveAppDataDir(), "GraphAndTable", "bridge_manifest.json");
-}
 
 async function readBridgeManifest(): Promise<GraphWorkspaceBridgeManifest> {
   const manifestPath = resolveManifestPath();

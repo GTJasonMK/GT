@@ -1,8 +1,20 @@
+import type { GraphWorkspaceExportFileOptions } from "@/agent/types.ts";
 import type { GraphData } from "@/types";
 import { isTauri } from "@/platform/runtime";
 import { openFileDialog, readTextFile, saveFileDialog, writeTextFile } from "@/platform/tauri";
 import { deserializeGraphData, serializeGraphData } from "./graphStorage";
 import { convertDrawnixToGraphData } from "./drawnixConvert";
+import {
+  importGraphFromFile as importGraphFromFileCore,
+  pickLocalFile as pickLocalFileCore,
+  type ImportGraphFromFileResult,
+  type ParsedImportedGraphData,
+} from "./graphFileTransferCore";
+
+const GRAPH_EXPORT_MIME = "application/json";
+const GRAPH_EXPORT_FILTERS = [{ name: "JSON", extensions: ["json"] }];
+const DEFAULT_GRAPH_EXPORT_BASENAME = "graph";
+const EXPORT_DIALOG_CANCELLED_ERROR = "导出已取消。";
 
 function downloadText(filename: string, contents: string, mime: string) {
   const blob = new Blob([contents], { type: mime });
@@ -19,42 +31,65 @@ function downloadText(filename: string, contents: string, mime: string) {
   }, 1500);
 }
 
-function pickLocalFile(accept: string): Promise<File | null> {
-  return new Promise((resolve) => {
-    const input = document.createElement("input");
-    input.type = "file";
-    input.accept = accept;
-    input.onchange = () => resolve(input.files?.[0] ?? null);
-    input.click();
-  });
+function resolveGraphExportFilename(filename?: string): string {
+  const normalizedFilename = filename?.trim();
+  if (normalizedFilename) {
+    return normalizedFilename;
+  }
+  return `${DEFAULT_GRAPH_EXPORT_BASENAME}_${Date.now()}.json`;
 }
 
-export async function exportGraphAsJsonFile(data: GraphData, filename?: string): Promise<void> {
+export type ImportGraphResult = ParsedImportedGraphData;
+
+export type GraphJsonOutputPathResult =
+  | { status: "selected"; outputPath: string }
+  | { status: "cancelled" }
+  | { status: "not_needed" };
+
+export async function requestGraphJsonOutputPath(filename?: string): Promise<GraphJsonOutputPathResult> {
+  if (!isTauri()) {
+    return { status: "not_needed" };
+  }
+
+  const filePath = await saveFileDialog({
+    filters: GRAPH_EXPORT_FILTERS,
+    defaultPath: resolveGraphExportFilename(filename),
+  });
+  if (!filePath) {
+    return { status: "cancelled" };
+  }
+  return {
+    status: "selected",
+    outputPath: filePath,
+  };
+}
+
+export async function exportGraphAsJsonFile(
+  data: GraphData,
+  options: GraphWorkspaceExportFileOptions = {},
+): Promise<void> {
   const jsonStr = serializeGraphData(data);
-  const defaultName = filename && filename.trim() ? filename.trim() : `graph_${Date.now()}.json`;
+  const defaultName = resolveGraphExportFilename(options.filename);
 
   if (isTauri()) {
-    const filePath = await saveFileDialog({
-      filters: [{ name: "JSON", extensions: ["json"] }],
-      defaultPath: defaultName,
-    });
-    if (!filePath) return;
-    await writeTextFile(filePath, jsonStr);
+    const explicitOutputPath = options.outputPath?.trim();
+    if (explicitOutputPath) {
+      await writeTextFile(explicitOutputPath, jsonStr);
+      return;
+    }
+
+    const outputPathResult = await requestGraphJsonOutputPath(options.filename);
+    if (outputPathResult.status !== "selected") {
+      throw new Error(EXPORT_DIALOG_CANCELLED_ERROR);
+    }
+    await writeTextFile(outputPathResult.outputPath, jsonStr);
     return;
   }
 
-  downloadText(defaultName, jsonStr, "application/json");
+  downloadText(defaultName, jsonStr, GRAPH_EXPORT_MIME);
 }
 
-export type ImportGraphSource = "graph" | "drawnix";
-
-export interface ImportGraphResult {
-  graph: GraphData;
-  source: ImportGraphSource;
-  warnings: string[];
-}
-
-export function parseGraphFileText(text: string): ImportGraphResult | null {
+export function parseGraphFileText(text: string): ParsedImportedGraphData | null {
   const graph = deserializeGraphData(text);
   if (graph) return { graph, source: "graph", warnings: [] };
 
@@ -68,25 +103,12 @@ export function parseGraphFileText(text: string): ImportGraphResult | null {
   }
 }
 
-/**
- * 导入图文件（支持本项目 JSON 与 Drawnix `.drawnix`）
- */
-export async function importGraphFromFile(): Promise<ImportGraphResult | null> {
-  if (isTauri()) {
-    const filePath = await openFileDialog({
-      filters: [
-        { name: "Graph JSON", extensions: ["json"] },
-        { name: "Drawnix", extensions: ["drawnix"] },
-      ],
-      multiple: false,
-    });
-    if (!filePath) return null;
-    const text = await readTextFile(filePath);
-    return parseGraphFileText(text);
-  }
-
-  const file = await pickLocalFile(".json,.drawnix");
-  if (!file) return null;
-  const text = await file.text();
-  return parseGraphFileText(text);
+export async function importGraphFromFile(): Promise<ImportGraphFromFileResult> {
+  return importGraphFromFileCore({
+    isTauri,
+    openFileDialog,
+    readTextFile,
+    pickLocalFile: (accept) => pickLocalFileCore(accept),
+    parseText: parseGraphFileText,
+  });
 }

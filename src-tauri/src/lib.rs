@@ -289,7 +289,21 @@ fn trim_vec<T>(items: &mut Vec<T>, limit: usize) {
 }
 
 fn create_id(prefix: &str, counter: u64) -> String {
-    format!("{}_{:04}", prefix, counter)
+    // 与 TypeScript executionTracker.ts 的 createId 保持一致：base-36 编码
+    let mut digits = Vec::new();
+    let mut value = counter;
+    if value == 0 {
+        digits.push(b'0');
+    } else {
+        while value > 0 {
+            let digit = (value % 36) as u8;
+            digits.push(if digit < 10 { b'0' + digit } else { b'a' + digit - 10 });
+            value /= 36;
+        }
+        digits.reverse();
+    }
+    let suffix: String = digits.iter().map(|&b| b as char).collect();
+    format!("{}_{:0>4}", prefix, suffix)
 }
 
 fn parse_counter(id: &str, prefix: &str) -> Option<u64> {
@@ -399,6 +413,12 @@ fn write_bridge_manifest(manifest: &BridgeManifest) -> Result<(), String> {
     let file_path = resolve_bridge_manifest_path()?;
     let json_str = serde_json::to_string_pretty(manifest).map_err(|e| format!("序列化 bridge manifest 失败: {}", e))?;
     std::fs::write(file_path, json_str).map_err(|e| format!("写入 bridge manifest 失败: {}", e))
+}
+
+fn remove_bridge_manifest() {
+    if let Ok(file_path) = resolve_bridge_manifest_path() {
+        let _ = std::fs::remove_file(file_path);
+    }
 }
 
 fn result_error(code: &str, message: &str, retryable: bool, details: Option<Value>) -> Value {
@@ -656,17 +676,29 @@ fn selected_subgraph(graph: &GraphDataPayload, selected_ids: &[String]) -> Optio
     Some(GraphDataPayload { nodes, edges })
 }
 
-fn resolve_export_path(app_data_dir: &Path, filename: Option<&str>) -> PathBuf {
+fn resolve_approved_export_path(input: &Value, filename: Option<&str>) -> Result<PathBuf, String> {
+    if let Some(output_path) = input.get("outputPath").and_then(Value::as_str) {
+        let trimmed = output_path.trim();
+        if trimmed.is_empty() {
+            return Err(String::from("outputPath 不能为空。"));
+        }
+        let path = PathBuf::from(trimmed);
+        if !path.is_absolute() {
+            return Err(String::from("outputPath 必须是绝对路径。"));
+        }
+        return Ok(path);
+    }
+
     match filename {
         Some(value) if !value.trim().is_empty() => {
-            let path = PathBuf::from(value);
+            let path = PathBuf::from(value.trim());
             if path.is_absolute() {
-                path
+                Ok(path)
             } else {
-                app_data_dir.join(path)
+                Err(String::from("缺少显式 outputPath；请在审批前选择导出位置。"))
             }
         }
-        _ => app_data_dir.join(format!("graph_export_{}.json", now_ms())),
+        _ => Err(String::from("缺少显式 outputPath；请在审批前选择导出位置。")),
     }
 }
 
@@ -1507,10 +1539,9 @@ fn handle_action(shared: &Arc<Mutex<BridgeRuntime>>, app: &tauri::AppHandle, nam
                     return result_error("PRECONDITION_FAILED", "连线不存在。", false, None);
                 };
                 edge.label = Some(String::from(label));
-                if let Some(data) = edge.data.as_mut() {
-                    let data_object = ensure_data_object(data);
-                    data_object.insert(String::from("label"), json!(label));
-                }
+                let data = edge.data.get_or_insert_with(|| json!({}));
+                let data_object = ensure_data_object(data);
+                data_object.insert(String::from("label"), json!(label));
                 update_workspace_after_change(&mut runtime);
                 let event = bridge_event(
                     &mut runtime,
@@ -1696,6 +1727,13 @@ fn handle_approval(shared: &Arc<Mutex<BridgeRuntime>>, app: &tauri::AppHandle, n
                         return result_error("PRECONDITION_FAILED", "当前没有可导出的选中节点，请重新选择后再审批。", false, None);
                     };
 
+                    let export_path = match resolve_approved_export_path(input, filename) {
+                        Ok(path) => path,
+                        Err(message) => {
+                            return result_error("PRECONDITION_FAILED", &message, false, None);
+                        }
+                    };
+
                     if let Some(approval_ref) = find_approval_mut(&mut runtime, &approval.id) {
                         approval_ref.status = String::from("approved");
                         approval_ref.resolved_by = Some(String::from(actor));
@@ -1726,7 +1764,6 @@ fn handle_approval(shared: &Arc<Mutex<BridgeRuntime>>, app: &tauri::AppHandle, n
                         Some(json!({ "scope": scope, "revision": runtime.workspace.revision })),
                     );
 
-                    let export_path = resolve_export_path(&runtime.app_data_dir, filename);
                     let result = serialize_workspace_json(&export_graph)
                         .and_then(|json_str| std::fs::write(&export_path, json_str).map_err(|e| format!("写入导出文件失败: {}", e)));
 
@@ -1954,7 +1991,7 @@ fn read_http_request(stream: &mut TcpStream) -> Result<(String, String, HashMap<
 fn write_json_response(stream: &mut TcpStream, status: &str, payload: &Value) {
     let body = serde_json::to_vec(payload).unwrap_or_else(|_| b"{\"ok\":false}".to_vec());
     let headers = format!(
-        "HTTP/1.1 {}\r\nContent-Type: application/json; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\nAccess-Control-Allow-Origin: *\r\n\r\n",
+        "HTTP/1.1 {}\r\nContent-Type: application/json; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\nAccess-Control-Allow-Origin: *\r\nAccess-Control-Allow-Methods: GET, POST, OPTIONS\r\nAccess-Control-Allow-Headers: Content-Type\r\n\r\n",
         status,
         body.len()
     );
@@ -1970,6 +2007,10 @@ fn write_sse_response(stream: &mut TcpStream) {
 fn handle_http_connection(shared: Arc<Mutex<BridgeRuntime>>, app: tauri::AppHandle, mut stream: TcpStream) {
     match read_http_request(&mut stream) {
         Ok((method, path, _headers, body)) => match (method.as_str(), path.as_str()) {
+            ("OPTIONS", _) => {
+                let response = "HTTP/1.1 204 No Content\r\nAccess-Control-Allow-Origin: *\r\nAccess-Control-Allow-Methods: GET, POST, OPTIONS\r\nAccess-Control-Allow-Headers: Content-Type\r\nAccess-Control-Max-Age: 86400\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+                let _ = stream.write_all(response.as_bytes());
+            }
             ("GET", "/health") => {
                 let payload = json!({ "ok": true, "transport": "tauri_loopback_http", "timestamp": now_ms() });
                 write_json_response(&mut stream, "200 OK", &payload);
@@ -1985,6 +2026,10 @@ fn handle_http_connection(shared: Arc<Mutex<BridgeRuntime>>, app: tauri::AppHand
                 write_sse_response(&mut stream);
                 let receiver = {
                     let mut runtime = shared.lock().expect("bridge mutex poisoned");
+                    // 限制最大 SSE 订阅者数量，超过时移除最旧的连接
+                    while runtime.subscribers.len() >= 20 {
+                        runtime.subscribers.remove(0);
+                    }
                     let (sender, receiver) = mpsc::channel::<String>();
                     runtime.subscribers.push(sender);
                     let initial_payload = json!({
@@ -2088,7 +2133,10 @@ fn start_bridge_server(app: &tauri::AppHandle, shared: Arc<Mutex<BridgeRuntime>>
             Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
                 thread::sleep(Duration::from_millis(40));
             }
-            Err(_) => break,
+            Err(_) => {
+                // 临时性网络错误（如文件描述符耗尽后恢复），等待后继续而非永久关闭服务
+                thread::sleep(Duration::from_millis(100));
+            }
         }
     });
 
@@ -2232,4 +2280,7 @@ pub fn run() {
         })
         .run(tauri::generate_context!())
         .expect("启动 Tauri 应用失败");
+
+    // 应用退出时清理 bridge manifest，避免 MCP Server 连接过期端口
+    remove_bridge_manifest();
 }

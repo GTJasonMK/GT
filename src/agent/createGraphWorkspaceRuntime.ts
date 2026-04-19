@@ -1,6 +1,7 @@
 import type { GraphData } from "../types/index.ts";
 import { GRAPH_WORKSPACE_MCP_CONTRACT } from "./contract.ts";
 import { buildWorkspaceSummary } from "./graphWorkspaceSummary.ts";
+import { normalizeWorkspaceSelection } from "./workspaceSelection.ts";
 import type { AgentExecutionTracker } from "./executionTracker.ts";
 import type {
   AgentActor,
@@ -10,6 +11,7 @@ import type {
   GraphImportEnvelope,
   GraphPersistenceTarget,
   GraphWorkspaceActionResult,
+  GraphWorkspaceExportFileOptions,
   GraphWorkspaceSummary,
 } from "./types.ts";
 
@@ -20,11 +22,13 @@ export interface GraphWorkspaceRuntimeDeps {
     allData: GraphData;
     selectedData: GraphData | null;
     selectedNodeCount: number;
+    selectedNodeId: string | null;
+    selectedNodeIds: string[];
     saveStatus: GraphWorkspaceSummary["saveStatus"];
   };
   saveWorkspace: () => Promise<void>;
   replaceWorkspace: (data: GraphData) => void;
-  exportWorkspaceJson: (data: GraphData, filename?: string) => Promise<void>;
+  exportWorkspaceJson: (data: GraphData, options?: GraphWorkspaceExportFileOptions) => Promise<void>;
   describePersistenceTarget: () => Promise<GraphPersistenceTarget>;
 }
 
@@ -281,10 +285,17 @@ export function createGraphWorkspaceRuntime(deps: GraphWorkspaceRuntimeDeps) {
 
   const buildWorkspaceSnapshot = () => {
     const { readModel, summary } = queryWorkspace();
+    const selection = normalizeWorkspaceSelection(
+      {
+        selectedNodeId: readModel.selectedNodeId,
+        selectedNodeIds: readModel.selectedNodeIds,
+      },
+      readModel.allData.nodes.map((node) => node.id),
+    );
     return {
       graph: readModel.allData,
-      selectedNodeId: null,
-      selectedNodeIds: [],
+      selectedNodeId: selection.selectedNodeId,
+      selectedNodeIds: selection.selectedNodeIds,
       saveStatus: readModel.saveStatus,
       revision: summary.revision,
       summary,
@@ -592,6 +603,7 @@ export function createGraphWorkspaceRuntime(deps: GraphWorkspaceRuntimeDeps) {
       async approveWorkspaceExport(input: {
         approvalId: string;
         actor?: AgentActor;
+        outputPath?: string;
       }): Promise<GraphWorkspaceActionResult<{ summary: GraphWorkspaceSummary; persistence: GraphPersistenceTarget }>> {
         const approval = deps.tracker.getApproval(input.approvalId);
         if (!approval || approval.status !== "requested") {
@@ -707,7 +719,12 @@ export function createGraphWorkspaceRuntime(deps: GraphWorkspaceRuntimeDeps) {
         });
 
         try {
-          await deps.exportWorkspaceJson(scopedData, filename);
+          await deps.exportWorkspaceJson(scopedData, {
+            filename,
+            outputPath: typeof input.outputPath === "string" && input.outputPath.trim()
+              ? input.outputPath
+              : undefined,
+          });
           const persistence = await deps.describePersistenceTarget();
           const completedEvent = completeSessionWithTask({
             actor,
@@ -965,6 +982,7 @@ export function createGraphWorkspaceRuntime(deps: GraphWorkspaceRuntimeDeps) {
           const result = await actions.approveWorkspaceExport({
             approvalId: typeof input.approvalId === "string" ? input.approvalId : "",
             actor: input.actor === "human" ? "human" : "supervisor",
+            outputPath: typeof input.outputPath === "string" ? input.outputPath : undefined,
           });
           return result;
         }

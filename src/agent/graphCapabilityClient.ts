@@ -4,6 +4,7 @@ import { useAgentStore } from "@/store/agentStore";
 import { useGraphStore } from "@/store/graphStore";
 import type { EdgeColor, LockMode, NodeColor } from "@/types/index.ts";
 import { GRAPH_WORKSPACE_MCP_CONTRACT } from "./contract.ts";
+import { applyWorkspaceSnapshotSelection } from "./workspaceSelection.ts";
 import type {
   AgentActor,
   AgentExecutionState,
@@ -40,6 +41,7 @@ interface FallbackRuntimeLike {
     approveWorkspaceExport: (input: {
       approvalId: string;
       actor?: AgentActor;
+      outputPath?: string;
     }) => Promise<GraphWorkspaceActionResult<unknown>>;
     rejectWorkspaceExport: (input: {
       approvalId: string;
@@ -467,7 +469,14 @@ export function createGraphCapabilityClient(fallbackRuntime: FallbackRuntimeLike
   const applyBridgeStatePayload = (payload: GraphWorkspaceBridgeStatePayload) => {
     const graphStore = useGraphStore.getState();
     graphStore.importData(payload.workspace.graph);
-    graphStore.setSelectedNodeId(payload.workspace.selectedNodeId ?? payload.workspace.selectedNodeIds[0] ?? null);
+    const selectionState = applyWorkspaceSnapshotSelection(useGraphStore.getState().nodes, {
+      selectedNodeId: payload.workspace.selectedNodeId,
+      selectedNodeIds: payload.workspace.selectedNodeIds,
+    });
+    useGraphStore.setState({
+      nodes: selectionState.nodes,
+      selectedNodeId: selectionState.selectedNodeId,
+    });
     graphStore.setSaveStatus(payload.workspace.saveStatus);
     useAgentStore.getState().replaceExecutionState(payload.executionState);
   };
@@ -491,6 +500,7 @@ export function createGraphCapabilityClient(fallbackRuntime: FallbackRuntimeLike
         return fallbackRuntime.actions.approveWorkspaceExport({
           approvalId: typeof input.approvalId === "string" ? input.approvalId : "",
           actor: coerceActor(input.actor, "supervisor"),
+          outputPath: typeof input.outputPath === "string" ? input.outputPath : undefined,
         });
       case "reject_pending_action":
         return Promise.resolve(fallbackRuntime.actions.rejectWorkspaceExport({
@@ -592,6 +602,7 @@ export function createGraphCapabilityClient(fallbackRuntime: FallbackRuntimeLike
       approveWorkspaceExport: (input: {
         approvalId: string;
         actor?: AgentActor;
+        outputPath?: string;
       }) =>
         preferBridge({
           command: "bridge_approval",
